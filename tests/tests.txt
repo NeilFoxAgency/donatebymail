@@ -1,0 +1,48 @@
+# Tests
+
+## Test 1 - Mission and nonprofit identity are clear [sanity]
+Viewport: desktop
+Description: Verifies the homepage immediately communicates the mission and nonprofit identity.
+Steps:
+1. Navigate to the app
+2. Wait for the homepage to load
+3. Confirm the main heading and nonprofit statement are visible
+Expected: The page says that Donate by Mail turns old phones into funding for good and identifies the organization as a U.S. 501(c)(3) public charity.
+
+## Test 2 - Crawlable resource page is useful on mobile
+Viewport: mobile
+Description: Verifies a distinct static resource page provides substantial original content.
+Steps:
+1. Navigate to /resources.html
+2. Confirm preparation guide cards are visible
+3. Expand one frequently asked question
+Expected: The resource page displays phone-preparation guidance and a readable FAQ answer without horizontal scrolling.
+
+## Test 3 - Multi-phone estimator updates
+Viewport: desktop
+Description: Verifies the donor experience supports multiple phones and a combined estimate.
+Steps:
+1. Navigate to the app
+2. Scroll to the phone estimator
+3. Tap "Add another phone"
+4. Confirm two phone cards are visible
+Expected: Two numbered phone cards and a combined informational estimate are visible.
+
+## Test 4 - Required preparation confirmation blocks completion
+Viewport: mobile
+Description: Verifies the donor packet cannot be created without the data-preparation confirmation.
+Steps:
+1. Navigate to the app
+2. Scroll to the mailing-plan form
+3. Fill all required donor fields
+4. Submit without checking the preparation confirmation
+Expected: The browser keeps the user on the donation form and does not show a completed donor packet.
+
+## Test 5 - Contact information is transparent
+Viewport: desktop
+Description: Verifies the organization provides a direct contact path and explanatory content.
+Steps:
+1. Navigate to /contact.html
+2. Review the email and inquiry guidance
+3. Confirm the site-wide policy links are visible
+Expected: A direct organization email, nonprofit inquiry guidance, and Privacy, Terms, and Accessibility links are visible.
