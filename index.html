@@ -28,6 +28,9 @@
     </script>
   </head>
   <body>
+    <div style="background:#eaf0f7;color:#102d4f;padding:10px 18px;text-align:center;font:700 14px/1.5 'Trebuchet MS',sans-serif">
+      Donate by Mail is a U.S. 501(c)(3) public charity · EIN 92-1515120
+    </div>
     <div id="root"></div>
     <nav aria-label="Organization, program, and policy pages" style="background:#102d4f;color:white;padding:18px;text-align:center;font-family:Trebuchet MS,sans-serif;font-size:14px;line-height:2">
       <a style="color:white;margin:0 8px" href="/about.html">Mission and nonprofit information</a>
@@ -43,5 +46,16 @@
     </nav>
     <noscript>Donate by Mail requires JavaScript for the interactive phone estimator. Mission, program, contact, and nonprofit information remain available through the linked pages above or by emailing satoshi@donatebymail.org.</noscript>
     <script type="module" src="./src/main.tsx"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        var paragraphs = Array.prototype.slice.call(document.querySelectorAll('footer p'));
+        var note = paragraphs.find(function (paragraph) {
+          return paragraph.textContent && paragraph.textContent.indexOf('Prototype website') !== -1;
+        });
+        if (note) {
+          note.innerHTML = '<a style="color:white;text-decoration:underline" href="/privacy.html">Privacy</a> · <a style="color:white;text-decoration:underline" href="/terms.html">Terms</a> · <a style="color:white;text-decoration:underline" href="/accessibility.html">Accessibility</a> · <a style="color:white;text-decoration:underline" href="/contact.html">Contact</a>';
+        }
+      });
+    </script>
   </body>
 </html>
