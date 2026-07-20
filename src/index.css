@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #fafaf9;
+}
+
+button,
+a,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 92%);
+}
+
+.receipt {
+  position: relative;
+  overflow: hidden;
+}
+
+.sample-watermark {
+  position: absolute;
+  left: 50%;
+  top: 53%;
+  z-index: 0;
+  transform: translate(-50%, -50%) rotate(-28deg);
+  font-family: 'DM Sans', sans-serif;
+  font-size: clamp(5rem, 14vw, 10rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(15, 118, 110, 0.055);
+  pointer-events: none;
+  user-select: none;
+}
+
+@media print {
+  @page { margin: 0.55in; }
+  body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  #receipt, #receipt * { visibility: visible !important; }
+  #receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  .no-print { display: none !important; }
+  .receipt-wrap { padding: 0; background: #fff; }
+}
