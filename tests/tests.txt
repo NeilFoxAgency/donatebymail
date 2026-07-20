@@ -1,0 +1,31 @@
+# Tests
+
+## Test 1 - Estimate a phone and see a value range [sanity]
+Viewport: desktop
+Description: Verifies the main estimator loads and produces a visible estimate.
+Steps:
+1. Navigate to the app
+2. Scroll to "Estimate your phone"
+3. Change condition to "Good"
+4. Confirm the estimate card updates
+Expected: A dollar range is visible beside "Estimated device value" and no error appears.
+
+## Test 2 - Add a second phone
+Viewport: mobile
+Description: Verifies donors can include more than one device on a small screen.
+Steps:
+1. Navigate to the app
+2. Scroll to "Estimate your phone"
+3. Tap "Add another phone"
+4. Confirm two phone cards are shown
+Expected: Two numbered phone cards are visible and the total estimate reflects both devices.
+
+## Test 3 - Shipping request guardrail
+Viewport: mobile
+Description: Verifies the preparation confirmation is required before the preview request completes.
+Steps:
+1. Navigate to the app
+2. Scroll to "Request your prepaid mailing plan"
+3. Fill in name, email, and ZIP code
+4. Tap "Create my mailing plan" without checking the preparation confirmation
+Expected: The success panel does not appear and the required confirmation remains incomplete.
