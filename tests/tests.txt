@@ -1,31 +1,32 @@
 # Tests
 
-## Test 1 - Estimate a phone and see a value range [sanity]
+## Test 1 - Estimate a phone and create a donation packet [sanity]
 Viewport: desktop
-Description: Verifies the main estimator loads and produces a visible estimate.
+Description: Verifies the main donor workflow creates a visible donation ID and document center.
 Steps:
 1. Navigate to the app
-2. Scroll to "Estimate your phone"
-3. Change condition to "Good"
-4. Confirm the estimate card updates
-Expected: A dollar range is visible beside "Estimated device value" and no error appears.
+2. Confirm a dollar range appears in the phone estimator
+3. Fill all required donor and address fields
+4. Check the data-preparation confirmation and submit
+5. Scroll to the document center
+Expected: A unique donation ID, packing slip tab, and acknowledgment preview tab are visible.
 
-## Test 2 - Add a second phone
+## Test 2 - Add a second phone and update the total
 Viewport: mobile
-Description: Verifies donors can include more than one device on a small screen.
+Description: Verifies donors can include multiple devices and see a combined estimate on a small screen.
 Steps:
 1. Navigate to the app
-2. Scroll to "Estimate your phone"
+2. Scroll to the phone estimator
 3. Tap "Add another phone"
-4. Confirm two phone cards are shown
-Expected: Two numbered phone cards are visible and the total estimate reflects both devices.
+4. Change the second phone brand to Samsung
+Expected: Two numbered phone cards are visible and the combined estimate reflects both devices.
 
-## Test 3 - Shipping request guardrail
+## Test 3 - Required preparation confirmation blocks submission
 Viewport: mobile
-Description: Verifies the preparation confirmation is required before the preview request completes.
+Description: Verifies a donor cannot create the packet without confirming data-preparation responsibilities.
 Steps:
 1. Navigate to the app
-2. Scroll to "Request your prepaid mailing plan"
-3. Fill in name, email, and ZIP code
-4. Tap "Create my mailing plan" without checking the preparation confirmation
-Expected: The success panel does not appear and the required confirmation remains incomplete.
+2. Fill all required donor and address fields
+3. Leave the preparation confirmation unchecked
+4. Tap "Create my donation packet"
+Expected: The document center does not appear and the required checkbox remains incomplete.
