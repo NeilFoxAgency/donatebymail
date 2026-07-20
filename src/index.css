@@ -14,7 +14,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  background: #fafaf9;
+  background: #f7f9fc;
 }
 
 button,
@@ -29,7 +29,30 @@ select {
     linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
   background-size: 42px 42px;
-  mask-image: linear-gradient(to bottom, black, transparent 92%);
+  mask-image: linear-gradient(to bottom, black, transparent 94%);
+}
+
+.print-document {
+  position: relative;
+  overflow: hidden;
+}
+
+.document-stripe {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  background: linear-gradient(90deg, #c9273d 0 33.33%, #ffffff 33.33% 66.66%, #174f8c 66.66% 100%);
+}
+
+.document-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .receipt {
@@ -37,35 +60,53 @@ select {
   overflow: hidden;
 }
 
-.sample-watermark {
+.pending-watermark {
   position: absolute;
   left: 50%;
-  top: 53%;
+  top: 55%;
   z-index: 0;
   transform: translate(-50%, -50%) rotate(-28deg);
   font-family: 'DM Sans', sans-serif;
   font-size: clamp(5rem, 14vw, 10rem);
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: rgba(15, 118, 110, 0.055);
+  color: rgba(201, 39, 61, 0.055);
   pointer-events: none;
   user-select: none;
 }
 
 @media print {
-  @page { margin: 0.55in; }
-  body { background: #fff !important; }
-  body * { visibility: hidden !important; }
-  #receipt, #receipt * { visibility: visible !important; }
-  #receipt {
+  @page {
+    margin: 0.45in;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  body[data-print-target='packing-slip'] #packing-slip,
+  body[data-print-target='packing-slip'] #packing-slip *,
+  body[data-print-target='receipt'] #receipt,
+  body[data-print-target='receipt'] #receipt * {
+    visibility: visible !important;
+  }
+
+  body[data-print-target='packing-slip'] #packing-slip,
+  body[data-print-target='receipt'] #receipt {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     max-width: none;
     box-shadow: none;
-    padding: 0;
+    padding: 0.2in;
   }
-  .no-print { display: none !important; }
-  .receipt-wrap { padding: 0; background: #fff; }
+
+  .no-print {
+    display: none !important;
+  }
 }
