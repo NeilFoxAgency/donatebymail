@@ -1,13 +1,13 @@
 # Tests
 
-## Test 1 - Mission and nonprofit identity are clear [sanity]
+## Test 1 - Mission, nonprofit identity, and hero photography are clear [sanity]
 Viewport: desktop
-Description: Verifies the redesigned homepage immediately communicates the mission and nonprofit identity.
+Description: Verifies the redesigned homepage immediately communicates the mission and uses documentary photography in the hero.
 Steps:
 1. Navigate to the app
 2. Wait for the homepage to load
-3. Confirm the main heading, donation docket, and nonprofit statement are visible
-Expected: The page says an old phone can still do useful work, explains the mail-in donation purpose, and identifies Donate by Mail as a U.S. 501(c)(3) public charity.
+3. Confirm the main heading, right-side phone-packing photograph, and nonprofit statement are visible
+Expected: The page says an old phone can still do useful work, identifies Donate by Mail as a U.S. 501(c)(3) public charity, and shows a clear phone-preparation photograph on the right side of the hero.
 
 ## Test 2 - Crawlable resource page is useful on mobile
 Viewport: mobile
@@ -38,7 +38,16 @@ Steps:
 4. Submit without checking the preparation confirmation
 Expected: The browser keeps the user on the donation form and does not show a completed donor packet.
 
-## Test 5 - Contact information is transparent
+## Test 5 - Photography remains responsive on mobile
+Viewport: mobile
+Description: Verifies the hero and mission photography stack cleanly without causing horizontal overflow.
+Steps:
+1. Navigate to the app
+2. Review the hero photograph and scroll to the final mission photograph
+3. Confirm the text, image crops, and call-to-action button remain readable
+Expected: The photographs fit within the mobile viewport, the closing photo stacks above the red message panel, and the page has no horizontal scrolling.
+
+## Test 6 - Contact information is transparent
 Viewport: desktop
 Description: Verifies the organization provides a direct contact path and explanatory content.
 Steps:
