@@ -1,0 +1,126 @@
+/* Documentary photography layer
+ * Pexels sources and credits are recorded in docs/photo-sources.md.
+ * Images are editorial context, not endorsements.
+ */
+
+#root main > section:first-child .max-w-md {
+  position: relative;
+  width: 100%;
+  max-width: 32rem !important;
+  margin-top: 0;
+}
+
+#root main > section:first-child .max-w-md > div:last-child {
+  display: none !important;
+}
+
+#root main > section:first-child .max-w-md::before {
+  content: "";
+  display: block;
+  min-height: clamp(29rem, 43vw, 38rem);
+  border-top: 5px solid var(--hm-navy);
+  border-bottom: 1px solid var(--hm-line-dark);
+  background-image:
+    linear-gradient(180deg, rgba(18, 59, 102, 0.03), rgba(18, 59, 102, 0.2)),
+    url("https://images.pexels.com/photos/5486776/pexels-photo-5486776.jpeg?auto=compress&cs=tinysrgb&w=1600");
+  background-position: center center;
+  background-size: cover;
+}
+
+#root main > section:first-child .max-w-md::after {
+  content: "Preparing a phone for its next chapter.";
+  display: block;
+  max-width: 28rem;
+  padding: 0.9rem 0 0;
+  color: var(--hm-muted);
+  font-family: var(--hm-body);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+}
+
+#security > div > div:first-child::before {
+  content: "";
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin: -2rem 0 2rem;
+  border-bottom: 1px solid var(--hm-line-dark);
+  background-image:
+    linear-gradient(180deg, rgba(18, 59, 102, 0.02), rgba(18, 59, 102, 0.14)),
+    url("https://images.pexels.com/photos/1458283/pexels-photo-1458283.jpeg?auto=compress&cs=tinysrgb&w=1200");
+  background-position: center 58%;
+  background-size: cover;
+}
+
+#root main > section.bg-\[\#c9273d\] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+#root main > section.bg-\[\#c9273d\]::before {
+  content: "";
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 29rem;
+  background-image:
+    linear-gradient(90deg, rgba(18, 59, 102, 0.08), rgba(18, 59, 102, 0.34)),
+    url("https://images.pexels.com/photos/19037726/pexels-photo-19037726.jpeg?auto=compress&cs=tinysrgb&w=1400");
+  background-position: center 48%;
+  background-size: cover;
+}
+
+#root main > section.bg-\[\#c9273d\] > div {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  max-width: none !important;
+  min-width: 0;
+  min-height: 29rem;
+  margin: 0 !important;
+  padding: clamp(3.5rem, 7vw, 7rem) clamp(2rem, 7vw, 7rem) !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  text-align: left !important;
+}
+
+#root main > section.bg-\[\#c9273d\] > div > div {
+  max-width: 34rem;
+}
+
+@media (max-width: 767px) {
+  #root main > section:first-child .max-w-md::before {
+    min-height: 23rem;
+    background-position: center center;
+  }
+
+  #security > div > div:first-child::before {
+    aspect-ratio: 16 / 11;
+  }
+
+  #root main > section.bg-\[\#c9273d\] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root main > section.bg-\[\#c9273d\]::before {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 22rem;
+  }
+
+  #root main > section.bg-\[\#c9273d\] > div {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: auto;
+    padding: 3.5rem 1.25rem !important;
+  }
+}
+
+@media print {
+  #root main > section:first-child .max-w-md::before,
+  #security > div > div:first-child::before,
+  #root main > section.bg-\[\#c9273d\]::before {
+    display: none !important;
+  }
+}
