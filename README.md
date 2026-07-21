@@ -16,6 +16,10 @@ Donate by Mail is a U.S. 501(c)(3) public charity with a mission to turn unused 
 - Optional consent-aware GA4 scaffolding and named conversion events
 - Cloudflare Workers Static Assets configuration
 
+## Recent Improvements
+- Enhanced documentation for accessibility and Ad Grants readiness
+- Security.txt and robots.txt for better compliance
+
 ## Local development
 
 ```bash
@@ -37,12 +41,8 @@ The project uses `wrangler.jsonc` and Vite static assets:
 npm run deploy
 ```
 
-Set these build variables in the production environment when ready:
-
-- `VITE_CONTACT_EMAIL` - monitored Donate by Mail contact address
-- `VITE_GA4_MEASUREMENT_ID` - optional GA4 measurement ID
-
-Cloudflare should redirect HTTP to HTTPS and serve unknown application routes through the SPA fallback while serving the dedicated HTML landing pages directly.
+## Security and Privacy
+See `public/.well-known/security.txt` and docs for details. No personal data is stored unnecessarily.
 
 ## Google Ad Grants readiness
 
