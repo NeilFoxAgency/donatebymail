@@ -4,12 +4,13 @@ The website uses a restrained set of documentary-style photographs from Pexels. 
 
 Pexels license: https://www.pexels.com/license/
 
-## Hero - phone preparation
+## Hero - phone and shipping handoff
 
-- Photographer: AI25.Studio
-- Pexels photo: https://www.pexels.com/photo/person-packing-iphone-in-wrapping-paper-5486776/
+- Photographer: Kampus Production
+- Pexels photo: https://www.pexels.com/photo/a-smartphone-on-a-carton-box-6682783/
 - Use: right side of the homepage hero
-- Treatment: editorial crop with a light navy tonal overlay
+- Treatment: crop centered on the smartphone, shipping carton, and visible package label, with a light navy tonal overlay
+- Rationale: clearly communicates phone plus mail logistics without reading as gift wrapping
 
 ## Data preparation
 
