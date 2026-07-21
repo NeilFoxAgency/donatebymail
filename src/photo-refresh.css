@@ -21,14 +21,14 @@
   border-top: 5px solid var(--hm-navy);
   border-bottom: 1px solid var(--hm-line-dark);
   background-image:
-    linear-gradient(180deg, rgba(18, 59, 102, 0.03), rgba(18, 59, 102, 0.2)),
-    url("https://images.pexels.com/photos/5486776/pexels-photo-5486776.jpeg?auto=compress&cs=tinysrgb&w=1600");
-  background-position: center center;
+    linear-gradient(180deg, rgba(18, 59, 102, 0.02), rgba(18, 59, 102, 0.16)),
+    url("https://images.pexels.com/photos/6682783/pexels-photo-6682783.jpeg?auto=compress&cs=tinysrgb&w=1600");
+  background-position: 58% center;
   background-size: cover;
 }
 
 #root main > section:first-child .max-w-md::after {
-  content: "Preparing a phone for its next chapter.";
+  content: "A phone and a shipping carton - the simple beginning of a mail-in donation.";
   display: block;
   max-width: 28rem;
   padding: 0.9rem 0 0;
@@ -92,7 +92,7 @@
 @media (max-width: 767px) {
   #root main > section:first-child .max-w-md::before {
     min-height: 23rem;
-    background-position: center center;
+    background-position: 56% center;
   }
 
   #security > div > div:first-child::before {
