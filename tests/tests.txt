@@ -1,57 +1,48 @@
 # Tests
 
-## Test 1 - Mission, nonprofit identity, and hero photography are clear [sanity]
+## Test 1 - Simplified homepage routes donors to one clear action [sanity]
 Viewport: desktop
-Description: Verifies the redesigned homepage immediately communicates the mission and uses documentary photography in the hero.
+Description: Verifies the homepage is shorter and keeps the full estimator and donor form off the homepage.
 Steps:
 1. Navigate to the app
-2. Wait for the homepage to load
-3. Confirm the main heading, right-side phone-packing photograph, and nonprofit statement are visible
-Expected: The page says an old phone can still do useful work, identifies Donate by Mail as a U.S. 501(c)(3) public charity, and shows a clear phone-preparation photograph on the right side of the hero.
+2. Confirm the hero, three-step overview, and primary "Donate a phone" action are visible
+3. Confirm the homepage does not show phone-condition fields or donor address fields
+Expected: The homepage explains the mission and routes the visitor to a dedicated donation page without displaying the full transaction workflow.
 
-## Test 2 - Crawlable resource page is useful on mobile
-Viewport: mobile
-Description: Verifies the redesigned static resource page provides substantial original content.
-Steps:
-1. Navigate to /resources.html
-2. Confirm the preparation guidance is visible
-3. Expand one frequently asked question
-Expected: The resource page displays phone-preparation guidance and a readable FAQ answer without horizontal scrolling.
-
-## Test 3 - Multi-phone estimator updates
+## Test 2 - Donation flow reveals one stage at a time
 Viewport: desktop
-Description: Verifies the workbench supports multiple phones and a combined estimate.
+Description: Verifies the dedicated Donate a Phone page uses a clear four-stage sequence.
 Steps:
-1. Navigate to the app
-2. Scroll to the phone estimator
-3. Tap "Add another phone"
-4. Confirm two phone records are visible
-Expected: Two numbered phone records and a combined informational estimate are visible.
+1. Navigate to /donate-phone.html
+2. Confirm Step 1 shows only phone-detail fields
+3. Tap "See my estimate"
+4. Confirm Step 2 shows the combined estimate and no donor-address form
+Expected: The progress indicator advances from Phone to Estimate and unrelated later-stage fields remain hidden.
 
-## Test 4 - Required preparation confirmation blocks completion
-Viewport: mobile
-Description: Verifies the donor packet cannot be created without the data-preparation confirmation.
-Steps:
-1. Navigate to the app
-2. Scroll to the donor record form
-3. Fill all required donor fields
-4. Submit without checking the preparation confirmation
-Expected: The browser keeps the user on the donation form and does not show a completed donor packet.
-
-## Test 5 - Photography remains responsive on mobile
-Viewport: mobile
-Description: Verifies the hero and mission photography stack cleanly without causing horizontal overflow.
-Steps:
-1. Navigate to the app
-2. Review the hero photograph and scroll to the final mission photograph
-3. Confirm the text, image crops, and call-to-action button remain readable
-Expected: The photographs fit within the mobile viewport, the closing photo stacks above the red message panel, and the page has no horizontal scrolling.
-
-## Test 6 - Contact information is transparent
+## Test 3 - Donor can complete the staged packet workflow
 Viewport: desktop
-Description: Verifies the organization provides a direct contact path and explanatory content.
+Description: Verifies the main donation workflow reaches printable documents.
 Steps:
-1. Navigate to /contact.html
-2. Review the email and inquiry guidance
-3. Confirm the site-wide policy links are visible
-Expected: A direct organization email, nonprofit inquiry guidance, and Privacy, Terms, and Accessibility links are visible.
+1. Navigate to /donate-phone.html
+2. Advance from the phone step to the estimate step and then to mailing details
+3. Fill all required donor fields and check the preparation confirmation
+4. Tap "Create donation packet"
+Expected: Step 4 displays a donation ID, Packing slip tab, Acknowledgment preview tab, and print actions.
+
+## Test 4 - Preparation confirmation blocks completion
+Viewport: mobile
+Description: Verifies the required phone-preparation acknowledgment remains a guardrail.
+Steps:
+1. Navigate to /donate-phone.html and advance to Step 3
+2. Fill all required donor fields
+3. Leave the preparation confirmation unchecked and tap "Create donation packet"
+Expected: The browser keeps the donor on Step 3 and does not display the document step.
+
+## Test 5 - Older-audience mobile controls remain readable
+Viewport: mobile
+Description: Verifies the simplified layout, progress indicator, and form controls fit a small screen.
+Steps:
+1. Navigate to /donate-phone.html
+2. Review the progress indicator and phone-detail controls
+3. Add another phone and scroll through both records
+Expected: Controls are full width, labels remain visible, buttons do not overflow, and there is no horizontal scrolling.
