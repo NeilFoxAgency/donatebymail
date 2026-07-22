@@ -1,4 +1,12 @@
 (() => {
+  if (!document.querySelector('link[data-site-shell]')) {
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = './site-shell.css';
+    stylesheet.dataset.siteShell = 'true';
+    document.head.appendChild(stylesheet);
+  }
+
   const links = [
     ['Donate a phone', './donate-phone.html'],
     ['How it works', './how-it-works.html'],
@@ -9,10 +17,7 @@
   ];
 
   const current = window.location.pathname.split('/').pop() || 'index.html';
-  const active = (href) => {
-    const target = href.replace('./', '');
-    return (current === '' || current === 'index.html') ? target === '' : current === target;
-  };
+  const active = (href) => current === href.replace('./', '');
 
   const brand = `
     <a class="brand" href="./">
@@ -24,30 +29,42 @@
     `<a ${active(href) ? 'aria-current="page"' : ''} class="${index === 0 ? 'nav-primary' : ''}" href="${href}">${label}</a>`
   ).join('');
 
-  const header = document.querySelector('header');
-  if (header) {
-    header.className = 'site-header';
-    header.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${navLinks}</nav><button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${navLinks}</nav>`;
-    const button = header.querySelector('.menu-button');
-    const mobile = header.querySelector('.mobile-nav');
-    button?.addEventListener('click', () => {
-      const open = button.getAttribute('aria-expanded') === 'true';
-      button.setAttribute('aria-expanded', String(!open));
-      button.textContent = open ? 'Menu' : 'Close';
-      if (mobile) mobile.hidden = open;
-    });
-  }
+  const normalize = () => {
+    const header = document.querySelector('header');
+    if (header && !header.dataset.sharedShell) {
+      header.dataset.sharedShell = 'true';
+      header.className = 'site-header';
+      header.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${navLinks}</nav><button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${navLinks}</nav>`;
+      const button = header.querySelector('.menu-button');
+      const mobile = header.querySelector('.mobile-nav');
+      button?.addEventListener('click', () => {
+        const open = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!open));
+        button.setAttribute('aria-label', open ? 'Open menu' : 'Close menu');
+        button.textContent = open ? 'Menu' : 'Close';
+        if (mobile) mobile.hidden = open;
+      });
+    }
 
-  const oldBar = document.querySelector('.top, .topline, .charity-bar');
-  const charityBar = document.createElement('div');
-  charityBar.className = 'charity-bar';
-  charityBar.textContent = 'Donate by Mail is a U.S. 501(c)(3) public charity · EIN 92-1515120';
-  if (oldBar) oldBar.replaceWith(charityBar);
-  else document.body.prepend(charityBar);
+    const oldBar = document.querySelector('.top, .topline, .charity-bar');
+    if (oldBar && oldBar.textContent !== 'Donate by Mail is a U.S. 501(c)(3) public charity · EIN 92-1515120') {
+      oldBar.className = 'charity-bar';
+      oldBar.textContent = 'Donate by Mail is a U.S. 501(c)(3) public charity · EIN 92-1515120';
+    } else if (!oldBar) {
+      const charityBar = document.createElement('div');
+      charityBar.className = 'charity-bar';
+      charityBar.textContent = 'Donate by Mail is a U.S. 501(c)(3) public charity · EIN 92-1515120';
+      document.body.prepend(charityBar);
+    }
 
-  const footer = document.querySelector('footer');
-  if (footer) {
-    footer.className = 'site-footer';
-    footer.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:satoshi@donatebymail.org">satoshi@donatebymail.org</a></p></div><div><h2>Get started</h2><a href="./donate-phone.html">Donate a phone</a><a href="./prepare-phone.html">Prepare your phone</a><a href="./receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="./how-it-works.html">How it works</a><a href="./for-nonprofits.html">For nonprofits</a><a href="./resources.html">Help and FAQs</a><a href="./transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="./about.html">About us</a><a href="./contact.html">Contact</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./accessibility.html">Accessibility</a></div></div>`;
-  }
+    const footer = document.querySelector('footer');
+    if (footer && !footer.dataset.sharedShell) {
+      footer.dataset.sharedShell = 'true';
+      footer.className = 'site-footer';
+      footer.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:satoshi@donatebymail.org">satoshi@donatebymail.org</a></p></div><div><h2>Get started</h2><a href="./donate-phone.html">Donate a phone</a><a href="./prepare-phone.html">Prepare your phone</a><a href="./receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="./how-it-works.html">How it works</a><a href="./for-nonprofits.html">For nonprofits</a><a href="./resources.html">Help and FAQs</a><a href="./transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="./about.html">About us</a><a href="./contact.html">Contact</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./accessibility.html">Accessibility</a></div></div>`;
+    }
+  };
+
+  normalize();
+  requestAnimationFrame(normalize);
 })();
