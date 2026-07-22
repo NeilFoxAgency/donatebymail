@@ -46,3 +46,13 @@ Steps:
 2. Review the progress indicator and phone-detail controls
 3. Add another phone and scroll through both records
 Expected: Controls are full width, labels remain visible, buttons do not overflow, and there is no horizontal scrolling.
+
+## Test 6 - Header and footer remain consistent across page systems
+Viewport: desktop
+Description: Verifies React pages and static information pages use the same nonprofit notice, navigation, mission statement, contact email, and footer groups.
+Steps:
+1. Navigate to the homepage and note the header navigation and footer headings
+2. Navigate to /donate-phone.html and confirm the same header and footer content
+3. Navigate to /prepare-phone.html and confirm the same header and footer content
+4. Navigate to /about.html and confirm the same header and footer content
+Expected: All four pages show the identical charity notice, six primary navigation links, mission statement, EIN, contact email, and Get started, Learn, and Organization and policies footer groups.
