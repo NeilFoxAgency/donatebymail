@@ -76,12 +76,12 @@ Steps:
 3. Tap "Retry"
 Expected: A friendly load error and retry control are visible, the donor fields still work, and the form cannot silently submit without a charity.
 
-## Test 9 - Header and footer remain consistent across page systems
+## Test 9 - Every page has one header notice without the EIN
 Viewport: desktop
-Description: Verifies React pages and static information pages retain the shared site shell.
+Description: Verifies React pages and static information pages show one consistent top notice without duplicating the header.
 Steps:
-1. Navigate to the homepage and note the header navigation and footer headings
-2. Navigate to /donate-phone.html and confirm the same header and footer content
-3. Navigate to /prepare-phone.html and confirm the same header and footer content
-4. Navigate to /about.html and confirm the same header and footer content
-Expected: All four pages show the identical charity notice, primary navigation, mission statement, EIN, contact email, and footer groups.
+1. Navigate to the homepage and count the top charity notices
+2. Navigate to /donate-phone.html and count the top charity notices
+3. Navigate to /prepare-phone.html and count the top charity notices
+4. Confirm the EIN remains available in the footer but not in the top notice
+Expected: Each page shows exactly one top notice reading "Donate by Mail is a U.S. 501(c)(3) public charity." The EIN is absent from the notice and remains available in the footer.
