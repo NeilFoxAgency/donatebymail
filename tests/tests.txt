@@ -85,3 +85,12 @@ Steps:
 3. Navigate to /prepare-phone.html and count the top charity notices
 4. Confirm the EIN remains available in the footer but not in the top notice
 Expected: Each page shows exactly one top notice reading "Donate by Mail is a U.S. 501(c)(3) public charity." The EIN is absent from the notice and remains available in the footer.
+
+## Test 10 - Progress labels are not crossed by connector lines
+Viewport: desktop
+Description: Verifies the four-stage progress indicator keeps its connector behind the step text.
+Steps:
+1. Navigate to /donate-phone.html
+2. Review the Phone, Estimate, Your details, and Documents labels
+3. Advance to Step 2 and review the progress indicator again
+Expected: Every visible step label has a clear paper-colored background, remains readable, and is not crossed or underlined by the connector line.
