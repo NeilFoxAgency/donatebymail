@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
   ClipboardCheck,
   Copy,
@@ -10,7 +9,6 @@ import {
   HelpCircle,
   Mail,
   Menu,
-  PhoneCall,
   Plus,
   Printer,
   RefreshCw,
@@ -146,7 +144,7 @@ function Header({simple = false}: {simple?: boolean}) {
     ? [['Home','./'],['How it works','./how-it-works.html'],['Prepare your phone','./prepare-phone.html'],['Help','./resources.html']]
     : [['Donate a phone','./donate-phone.html'],['How it works','./how-it-works.html'],['For nonprofits','./for-nonprofits.html'],['About','./about.html'],['Help','./resources.html']];
   return <>
-    <div className="charity-bar">U.S. 501(c)(3) public charity · EIN 92-1515120</div>
+    <div className="charity-bar">Donate by Mail is a U.S. 501(c)(3) public charity</div>
     <header className="site-header"><div className="header-inner"><Logo />
       <nav className="desktop-nav" aria-label="Primary navigation">{links.map(([label,href],index)=><a className={index===0&&!simple?'nav-primary':''} href={href} key={href}>{label}</a>)}</nav>
       <button className="menu-button" onClick={()=>setOpen(v=>!v)} aria-label={open?'Close menu':'Open menu'}>{open?<X/>:<Menu/>}</button>
@@ -160,11 +158,11 @@ function Footer() {
 
 function HomePage() {
   return <div className="page"><Header /><main>
-    <section className="home-hero"><div className="home-hero-inner"><div className="home-copy"><p className="kicker">A simpler way to give</p><h1>Put your old phone to work for a good cause.</h1><p className="lead">Donate one or several phones by mail. We guide you through the device details, phone preparation, shipping choice, charity selection, and printable documents.</p><div className="hero-actions"><a className="button primary" href="./donate-phone.html">Donate a phone <ArrowRight /></a><a className="text-link" href="./how-it-works.html">See how it works</a></div><ul className="trust-list"><li><Check/>Choose one nonprofit</li><li><Check/>Free shipping options</li><li><Check/>Printable donation documents</li></ul></div><figure className="hero-photo"><img src="https://images.pexels.com/photos/6682783/pexels-photo-6682783.jpeg?auto=compress&cs=tinysrgb&w=1600" alt="Smartphone resting on a labeled shipping carton during a delivery handoff" /><figcaption>A phone, a box, and a guided mail-in process.</figcaption></figure></div></section>
-    <section className="simple-section"><div className="content-narrow"><p className="kicker">How it works</p><h2>Three steps. One clear purpose.</h2><div className="steps-list"><article><span>1</span><div><h3>Tell us about the phone</h3><p>Select the brand, condition, and a few basic details. You can add more than one phone.</p></div></article><article><span>2</span><div><h3>Choose a charity and mailing option</h3><p>Search Pledge’s nonprofit database, select one organization, and choose a printable label or mail-in kit.</p></div></article><article><span>3</span><div><h3>Keep your documents</h3><p>Print a packing slip now. A charitable acknowledgment is issued only after the phones are received and verified.</p></div></article></div><a className="button secondary" href="./how-it-works.html">Read the full process</a></div></section>
+    <section className="home-hero"><img className="hero-background-image" src="https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/phone-donation-hero.png" alt="Older woman placing an old smartphone into a mailing envelope at home"/><div className="home-hero-inner"><div className="home-copy"><h1>Old Phones.<br/>New Possibilities.</h1><p className="lead">Put your old phone to work for a good cause.</p><div className="hero-actions"><a className="button primary" href="./donate-phone.html">Donate a Phone <ArrowRight/></a><a className="text-link" href="./how-it-works.html">See how it works</a></div></div></div></section>
+    <section className="simple-section"><div className="content-narrow"><p className="kicker">How it works</p><div className="steps-feature"><div className="steps-copy"><h2>Three steps. One clear purpose.</h2><div className="steps-list"><article><span>1</span><div><h3>Tell us about the phone</h3><p>Select the brand, condition, and a few basic details. You can add more than one phone.</p></div></article><article><span>2</span><div><h3>Choose a charity and mailing option</h3><p>Search Pledge’s nonprofit database, select one organization, and choose a printable label or mail-in kit.</p></div></article><article><span>3</span><div><h3>Keep your documents</h3><p>Print a packing slip now. A charitable acknowledgment is issued only after the phones are received and verified.</p></div></article></div><a className="button secondary" href="./how-it-works.html">Read the full process</a></div><figure className="steps-photo"><img loading="lazy" src="https://images.pexels.com/photos/6975192/pexels-photo-6975192.jpeg?auto=compress&cs=tinysrgb&w=1200" alt="Senior couple using a smartphone together at home"/><figcaption>A familiar device can still have a useful next chapter.</figcaption></figure></div></div></section>
     <section className="reassurance"><div className="reassurance-inner"><div><ShieldCheck/><h2>Your information and your phone deserve careful handling.</h2><p>We explain what to back up, what to remove, and when documents become valid. We never ask for your passcode.</p></div><a className="button light" href="./prepare-phone.html">Prepare your phone</a></div></section>
     <section className="path-section"><div className="path-grid"><article><p className="kicker">For individual donors</p><h2>Ready to clear out a drawer?</h2><p>Start with the device. The donation flow shows only one stage at a time.</p><a className="button primary" href="./donate-phone.html">Start a donation</a></article><article><p className="kicker">For nonprofit organizations</p><h2>Interested in a phone campaign?</h2><p>Learn how Donate by Mail can provide templates, logistics, reporting, and a share of net proceeds.</p><a className="button secondary" href="./for-nonprofits.html">Explore partnerships</a></article></div></section>
-    <section className="help-strip"><div><PhoneCall/><div><h2>Need help before you begin?</h2><p>Visit the help center or email satoshi@donatebymail.org.</p></div></div><a href="./resources.html">Go to help and FAQs</a></section>
+    <section className="mascot-guide"><div className="mascot-guide-inner"><figure><img src="https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/donate-doggo.png" alt="Donate by Mail black Labrador mail carrier mascot holding a cell phone"/></figure><div><p className="kicker">Here to help</p><h2>Not sure where to start?</h2><p>We keep the process simple: identify your phone, prepare it safely, choose a nonprofit, and mail it in.</p><div className="mascot-guide-actions"><a className="button secondary" href="./prepare-phone.html">Prepare your phone</a><a className="text-link" href="./resources.html">Help and FAQs</a></div></div></div></section>
   </main><Footer /></div>;
 }
 
@@ -177,17 +175,7 @@ function Progress({step}: {step:number}) {
   return <div className="progress" aria-label={`Step ${step} of 4`}><p>Step {step} of 4</p><ol>{labels.map((label,index)=><li className={index+1<=step?'active':''} key={label}><span>{index+1}</span><small>{label}</small></li>)}</ol></div>;
 }
 
-function CharitySelector({
-  selected,
-  onChange,
-  error,
-  revision,
-}: {
-  selected: SelectedCharity | null;
-  onChange: (charity: SelectedCharity | null) => void;
-  error: string;
-  revision: number;
-}) {
+function CharitySelector({selected,onChange,error,revision}: {selected:SelectedCharity|null;onChange:(charity:SelectedCharity|null)=>void;error:string;revision:number}) {
   const [status,setStatus] = useState<'loading'|'ready'|'error'>('loading');
   const [loadAttempt,setLoadAttempt] = useState(0);
   const environment = getPledgeEnvironment();
@@ -198,53 +186,26 @@ function CharitySelector({
     const handleMessage = (event: MessageEvent) => {
       const action = parsePledgeMessage(event, environment);
       if (!action) return;
-      const next = pledgeSelectionReducer(selected, action);
-      onChange(next);
-      if (action.type === 'selected') {
-        void fetchCharityDetails(action.charity).then((details) => onChange(details));
-      }
+      onChange(pledgeSelectionReducer(selected, action));
+      if (action.type === 'selected') void fetchCharityDetails(action.charity).then((details) => onChange(details));
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [environment, onChange, selected]);
 
   useEffect(() => {
-    if (!partnerKey) {
-      setStatus('error');
-      return;
-    }
+    if (!partnerKey) { setStatus('error'); return; }
     setStatus('loading');
-    void loadPledgeScript(config.scriptUrl)
-      .then(() => setStatus('ready'))
-      .catch(() => setStatus('error'));
+    void loadPledgeScript(config.scriptUrl).then(() => setStatus('ready')).catch(() => setStatus('error'));
   }, [config.scriptUrl, loadAttempt, partnerKey, revision]);
 
-  const retryWidget = () => {
-    resetPledgeScript();
-    setLoadAttempt((value) => value + 1);
-  };
-
-  const changeCharity = () => {
-    onChange(null);
-    retryWidget();
-  };
-
+  const retryWidget = () => { resetPledgeScript(); setLoadAttempt((value) => value + 1); };
+  const changeCharity = () => { onChange(null); retryWidget(); };
   const location = selected ? charityLocation(selected) : '';
+
   return <section className="charity-selector" aria-labelledby="charity-heading">
-    <div className="charity-copy">
-      <p className="kicker">Charity selection</p>
-      <h2 id="charity-heading">Choose the charity that your donation supports.</h2>
-      <p>Search for a nonprofit and select the organization you would like your phone donation to support.</p>
-      <p className="charity-clarification">The final amount available to support the selected charity will depend on the phone’s condition, processing costs, and resale value.</p>
-    </div>
-    {selected ? <div className="selected-charity" aria-live="polite">
-      {selected.logoUrl&&<img src={selected.logoUrl} alt="" />}
-      <div><span>Selected charity</span><strong>{selected.name}</strong><small>Pledge ID: {selected.pledgeId}</small>{selected.ein&&<small>EIN: {selected.ein}</small>}{location!=='Not provided'&&<small>{location}</small>}</div>
-      <button type="button" onClick={changeCharity}>Change charity</button>
-    </div> : <>
-      {status==='loading'&&<p className="widget-status" role="status">Loading charity search…</p>}
-      {status==='error'?<div className="widget-error" role="alert"><p>We couldn’t load the charity search. Please try again.</p><button type="button" onClick={retryWidget}><RefreshCw/>Retry</button></div>:partnerKey&&<div key={`${revision}-${loadAttempt}`} className="plg-search pledge-widget" data-partner-key={partnerKey} aria-label="Search Pledge nonprofit organizations" />}
-    </>}
+    <div className="charity-copy"><p className="kicker">Charity selection</p><h2 id="charity-heading">Choose the charity that your donation supports.</h2><p>Search for a nonprofit and select the organization you would like your phone donation to support.</p><p className="charity-clarification">The final amount available to support the selected charity will depend on the phone’s condition, processing costs, and resale value.</p></div>
+    {selected ? <div className="selected-charity" aria-live="polite">{selected.logoUrl&&<img src={selected.logoUrl} alt=""/>}<div><span>Selected charity</span><strong>{selected.name}</strong><small>Pledge ID: {selected.pledgeId}</small>{selected.ein&&<small>EIN: {selected.ein}</small>}{location!=='Not provided'&&<small>{location}</small>}</div><button type="button" onClick={changeCharity}>Change charity</button></div> : <>{status==='loading'&&<p className="widget-status" role="status">Loading charity search…</p>}{status==='error'?<div className="widget-error" role="alert"><p>We couldn’t load the charity search. Please try again.</p><button type="button" onClick={retryWidget}><RefreshCw/>Retry</button></div>:partnerKey&&<div key={`${revision}-${loadAttempt}`} className="plg-search pledge-widget" data-partner-key={partnerKey} aria-label="Search Pledge nonprofit organizations"/>}</>}
     {error&&<p id="charity-error" className="field-error" role="alert">{error}</p>}
   </section>;
 }
@@ -279,11 +240,7 @@ function DonationPage() {
   const submit = async (event:FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitError('');
-    if (!selectedCharity) {
-      setCharityError('Please select the charity you would like your donation to support.');
-      requestAnimationFrame(()=>charitySectionRef.current?.focus());
-      return;
-    }
+    if (!selectedCharity) { setCharityError('Please select the charity you would like your donation to support.'); requestAnimationFrame(()=>charitySectionRef.current?.focus()); return; }
     const next: DonationSubmission = {id:donationId(),createdAt:new Date().toISOString(),donor:{...donor},shippingMethod,devices:devices.map(device=>({...device})),charity:selectedCharity};
     setSubmitting(true);
     try {
@@ -296,9 +253,7 @@ function DonationPage() {
       localStorage.removeItem('donate-by-mail-draft');
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'We could not send the donation packet. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
   const printDocument = (target:DocumentType) => {setActiveDocument(target);document.body.setAttribute('data-print-target',target);setTimeout(()=>window.print(),50);};
   const copyId = async () => {if(!record)return;await navigator.clipboard.writeText(record.id);setCopied(true);setTimeout(()=>setCopied(false),1400);};
@@ -313,7 +268,8 @@ function DonationPage() {
 
 function PackingSlip({record,onPrint}: {record:DonationSubmission;onPrint:()=>void}) {
   const date = new Date(record.createdAt).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
-  return <div className="document-wrap"><div className="document-toolbar"><div><strong>Packing slip</strong><span>Include one copy inside the package.</span></div><button className="button secondary" onClick={onPrint}><Printer/>Print or save PDF</button></div><article id="packing-document" className="print-document"><div className="doc-rule"/><header><Logo/><div><small>Donation ID</small><strong>{record.id}</strong><span>Created {date}</span></div></header><section className="doc-two"><div><h2>Donor</h2><p><strong>{record.donor.name}</strong><br/>{record.donor.address1}<br/>{record.donor.address2&&<>{record.donor.address2}<br/></>}{record.donor.city}, {record.donor.state} {record.donor.zip}<br/>{record.donor.email}</p></div><div><h2>Selected charity</h2><p><strong>{record.charity.name}</strong><br/>Pledge ID: {record.charity.pledgeId}<br/>{record.charity.ein&&<>EIN: {record.charity.ein}<br/></>}{charityLocation(record.charity)!=='Not provided'&&charityLocation(record.charity)}</p></div></section><section><h2>Mailing plan</h2><p><strong>{record.shippingMethod==='label'?'Printable prepaid label':'Mail-in kit requested'}</strong> · Keep this donation ID with the package.</p></section><section><h2>Devices enclosed</h2>{record.devices.map((device,index)=><p className="device-line" key={device.id}>{describeDevice(device,index)}</p>)}</section><section className="doc-checks"><div><h2>Before sealing the box</h2><p>□ Remove SIM and memory cards<br/>□ Turn off activation locks<br/>□ Factory reset when possible<br/>□ Do not include passcodes</p></div><div><h2>For Donate by Mail staff</h2><p>□ Package received<br/>□ Device count confirmed<br/>□ Selected charity confirmed<br/>□ Acknowledgment authorized</p></div></section><p className="doc-note">This packing slip is not a charitable contribution acknowledgment. Selecting a charity here does not send money through Pledge.</p></article></div>;
+  const location = charityLocation(record.charity);
+  return <div className="document-wrap"><div className="document-toolbar"><div><strong>Packing slip</strong><span>Include one copy inside the package.</span></div><button className="button secondary" onClick={onPrint}><Printer/>Print or save PDF</button></div><article id="packing-document" className="print-document"><div className="doc-rule"/><header><Logo/><div><small>Donation ID</small><strong>{record.id}</strong><span>Created {date}</span></div></header><section className="doc-two"><div><h2>Donor</h2><p><strong>{record.donor.name}</strong><br/>{record.donor.address1}<br/>{record.donor.address2&&<>{record.donor.address2}<br/></>}{record.donor.city}, {record.donor.state} {record.donor.zip}<br/>{record.donor.email}</p></div><div><h2>Selected charity</h2><p><strong>{record.charity.name}</strong><br/>Pledge ID: {record.charity.pledgeId}<br/>{record.charity.ein&&<>EIN: {record.charity.ein}<br/></>}{location!=='Not provided'&&location}</p></div></section><section><h2>Mailing plan</h2><p><strong>{record.shippingMethod==='label'?'Printable prepaid label':'Mail-in kit requested'}</strong> · Keep this donation ID with the package.</p></section><section><h2>Devices enclosed</h2>{record.devices.map((device,index)=><p className="device-line" key={device.id}>{describeDevice(device,index)}</p>)}</section><section className="doc-checks"><div><h2>Before sealing the box</h2><p>□ Remove SIM and memory cards<br/>□ Turn off activation locks<br/>□ Factory reset when possible<br/>□ Do not include passcodes</p></div><div><h2>For Donate by Mail staff</h2><p>□ Package received<br/>□ Device count confirmed<br/>□ Selected charity confirmed<br/>□ Acknowledgment authorized</p></div></section><p className="doc-note">This packing slip is not a charitable contribution acknowledgment. Selecting a charity here does not send money through Pledge.</p></article></div>;
 }
 
 function Acknowledgment({record,onPrint}: {record:DonationSubmission;onPrint:()=>void}) {
