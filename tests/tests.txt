@@ -2,12 +2,12 @@
 
 ## Test 1 - Simplified homepage routes donors to one clear action [sanity]
 Viewport: desktop
-Description: Verifies the homepage remains brief and routes donors to the dedicated phone-donation flow.
+Description: Verifies the locked hero remains intact and the How it works section gains a readable senior-smartphone photo without adding homepage complexity.
 Steps:
 1. Navigate to the app
-2. Confirm the hero, three-step overview, and primary "Donate a phone" action are visible
-3. Confirm the homepage does not show phone-condition fields or donor address fields
-Expected: The homepage explains the mission and routes the visitor to a dedicated donation page without displaying the full transaction workflow.
+2. Confirm the donation-process photo, blue hero treatment, white "Old Phones. New Possibilities." headline, and primary "Donate a Phone" action are visible
+3. Scroll to How it works and confirm the senior-couple smartphone photo appears; continue down and confirm the black Labrador mascot appears while phone-condition and donor address fields remain absent
+Expected: The homepage keeps the locked blue-and-white hero, adds a relevant photo beside How it works, keeps the mascot as a secondary guide lower on the page, and routes visitors to the dedicated donation flow without displaying the full transaction workflow.
 
 ## Test 2 - Pledge charity search appears in the donation form
 Viewport: desktop
