@@ -23,11 +23,7 @@
   const current = window.location.pathname.split('/').pop() || 'index.html';
   const active = (href) => current === href.replace('./', '');
 
-  const brand = `
-    <a class="brand" href="./">
-      <span class="brand-icon" aria-hidden="true">✉</span>
-      <span><strong>Donate by Mail</strong><small>Old phones. New possibilities.</small></span>
-    </a>`;
+  const brand = '<a class="site-brand-logo" href="./" aria-label="Donate by Mail home"><img src="https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/donate-by-mail-logo.png" alt="Donate by Mail"></a>';
 
   const navLinks = links.map(([label, href], index) =>
     `<a ${active(href) ? 'aria-current="page"' : ''} class="${index === 0 ? 'nav-primary' : ''}" href="${href}">${label}</a>`
@@ -59,8 +55,6 @@
       const bars = Array.from(document.querySelectorAll('.top, .topline, .charity-bar'));
       let primaryBar = bars.find((bar) => isReactOwned(bar)) || bars[0];
 
-      // React entry pages render their own notice. Do not create a competing one
-      // before the app has mounted. Static pages receive one shared notice here.
       if (!primaryBar && !reactRoot) {
         primaryBar = document.createElement('div');
         document.body.prepend(primaryBar);
