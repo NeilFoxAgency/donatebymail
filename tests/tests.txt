@@ -78,13 +78,13 @@ Expected: A friendly load error and retry control are visible, the donor fields 
 
 ## Test 9 - Supporting pages guide visitors toward a next action
 Viewport: desktop
-Description: Verifies the five main information pages use photo-led layouts, clear task-specific content, consistent site chrome, and bottom-of-page calls to action.
+Description: Verifies the main information pages plus Team, Get Involved, and Phone Drives use relevant imagery, focused content, consistent site chrome, and clear next actions.
 Steps:
-1. Visit /how-it-works.html, /prepare-phone.html, /for-nonprofits.html, /resources.html, and /about.html
-2. On each page confirm a prominent relevant photograph is visible near the top and the shared Donate by Mail header/footer are present
-3. Confirm the donor-facing pages include a lower-page Donate a phone call to action; confirm For nonprofits ends with a pilot/contact action and a path to the donor experience
-4. On Prepare your phone and Help & FAQs confirm the Donate by Mail Labrador mascot appears as a guidance element
-Expected: Each supporting page has a distinct purpose, useful visual context, readable long-form content, and a clear next step instead of ending abruptly.
+1. Visit /how-it-works.html, /prepare-phone.html, /for-nonprofits.html, /resources.html, /about.html, /team.html, /get-involved.html, and /phone-drives.html
+2. Confirm each page has a relevant visual near the top and the shared Donate by Mail header/footer; on Help & FAQs confirm the headline says "Questions about donating your phone? Start here."
+3. Confirm For nonprofits links to phone-drive planning, Get Involved clearly says no paid openings are currently posted, and Phone Drives ends with both a planning action and an individual-donation option
+4. Confirm Team names Neil Fox and Tre Plaisted as co-founders and the new involvement pages use the Labrador mascot as a guidance element
+Expected: Each supporting page has a distinct purpose, useful visual context, readable long-form content, honest opportunity information, and a clear funnel toward donation, organizing, volunteering, or nonprofit partnership.
 
 ## Test 10 - Progress labels are not crossed by connector lines
 Viewport: desktop
