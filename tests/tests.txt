@@ -76,15 +76,16 @@ Steps:
 3. Tap "Retry"
 Expected: A friendly load error and retry control are visible, the donor fields still work, and the form cannot silently submit without a charity.
 
-## Test 9 - Header and footer are canonical on every page
+## Test 9 - Header, footer, and team identity are canonical
 Viewport: desktop
-Description: Verifies the React homepage and donation flow plus every static page share the same navigation labels, organization notice, complete footer links, and canonical contact email.
+Description: Verifies the React homepage and donation flow plus every static page share the same site chrome and that the Team page shows the two co-founder portraits.
 Steps:
 1. Visit /, /donate-phone.html, /about.html, /accessibility.html, /contact.html, /data-security.html, /for-nonprofits.html, /get-involved.html, /how-it-works.html, /phone-drives.html, /prepare-phone.html, /privacy.html, /receipts.html, /resources.html, /team.html, /terms.html, and /transparency.html
 2. On every route confirm the header shows Donate a phone, How it works, Prepare your phone, For nonprofits, Help and FAQs, and About in the same order, with the same 501(c)(3) notice
 3. At mobile width check the homepage, donation page, and at least one static page: the control reads Menu when closed and Close when open, and the expanded navigation matches the same link set
 4. On every route confirm the footer includes Host a phone drive, Get involved, Our team, Help and FAQs, Transparency, Contact, Privacy, Terms, Accessibility, EIN 92-1515120, and tre@donatebymail.org
-Expected: Site chrome is consistent across every route, including the React-rendered pages and static pages, and the canonical contact address is tre@donatebymail.org.
+5. On /team.html confirm portrait photographs for Neil Fox and Tre Plaisted are visible in their co-founder cards
+Expected: Site chrome is consistent across every route, the canonical contact address is tre@donatebymail.org, and the Team page visibly identifies both co-founders with their portraits.
 
 ## Test 10 - Progress labels are not crossed by connector lines
 Viewport: desktop
