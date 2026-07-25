@@ -11,6 +11,23 @@
   const reactRoot = document.getElementById('root');
   const isReactOwned = (element) => Boolean(reactRoot && element && reactRoot.contains(element));
 
+  const resourceMap = new Map([
+    ['./resources/donate-by-mail-logo.png', './resources/donate-by-mail-logo.svg'],
+    ['./resources/donate-doggo.png', './resources/donate-doggo.svg'],
+    ['./resources/phone-donation-hero.png', './resources/phone-donation-hero.svg'],
+    ['https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/donate-by-mail-logo.png', './resources/donate-by-mail-logo.svg'],
+    ['https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/donate-doggo.png', './resources/donate-doggo.svg'],
+    ['https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/phone-donation-hero.png', './resources/phone-donation-hero.svg'],
+  ]);
+
+  const normalizeResources = () => {
+    document.querySelectorAll('img[src]').forEach((img) => {
+      const src = img.getAttribute('src');
+      const replacement = resourceMap.get(src);
+      if (replacement) img.setAttribute('src', replacement);
+    });
+  };
+
   const links = [
     ['Donate a phone', './donate-phone.html'],
     ['How it works', './how-it-works.html'],
@@ -23,7 +40,7 @@
   const current = window.location.pathname.split('/').pop() || 'index.html';
   const active = (href) => current === href.replace('./', '');
 
-  const brand = '<a class="site-brand-logo" href="./" aria-label="Donate by Mail home"><img src="https://5e27aa4c670fcbb06b.v2.appdeploy.ai/resources/donate-by-mail-logo.png" alt="Donate by Mail"></a>';
+  const brand = '<a class="site-brand-logo" href="./" aria-label="Donate by Mail home"><img src="./resources/donate-by-mail-logo.svg" alt="Donate by Mail"></a>';
 
   const navLinks = links.map(([label, href], index) =>
     `<a ${active(href) ? 'aria-current="page"' : ''} class="${index === 0 ? 'nav-primary' : ''}" href="${href}">${label}</a>`
@@ -36,6 +53,8 @@
     normalizing = true;
 
     try {
+      normalizeResources();
+
       const header = document.querySelector('header');
       if (header && !isReactOwned(header) && !header.dataset.sharedShell) {
         header.dataset.sharedShell = 'true';
@@ -72,6 +91,8 @@
         footer.className = 'site-footer';
         footer.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:tre@donatebymail.org">tre@donatebymail.org</a></p></div><div><h2>Get started</h2><a href="./donate-phone.html">Donate a phone</a><a href="./prepare-phone.html">Prepare your phone</a><a href="./phone-drives.html">Host a phone drive</a><a href="./get-involved.html">Get involved</a><a href="./receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="./how-it-works.html">How it works</a><a href="./for-nonprofits.html">For nonprofits</a><a href="./resources.html">Help and FAQs</a><a href="./transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="./about.html">About us</a><a href="./team.html">Our team</a><a href="./contact.html">Contact</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./accessibility.html">Accessibility</a></div></div>`;
       }
+
+      normalizeResources();
     } finally {
       normalizing = false;
     }
