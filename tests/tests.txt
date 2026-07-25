@@ -2,47 +2,95 @@
 
 ## Test 1 - Simplified homepage routes donors to one clear action [sanity]
 Viewport: desktop
-Description: Verifies the homepage is shorter and keeps the full estimator and donor form off the homepage.
+Description: Verifies the locked hero remains intact and the How it works section gains a readable senior-smartphone photo without adding homepage complexity.
 Steps:
 1. Navigate to the app
-2. Confirm the hero, three-step overview, and primary "Donate a phone" action are visible
-3. Confirm the homepage does not show phone-condition fields or donor address fields
-Expected: The homepage explains the mission and routes the visitor to a dedicated donation page without displaying the full transaction workflow.
+2. Confirm the donation-process photo, blue hero treatment, white "Old Phones. New Possibilities." headline, and primary "Donate a Phone" action are visible
+3. Scroll to How it works and confirm the senior-couple smartphone photo appears; continue down and confirm the black Labrador mascot appears while phone-condition and donor address fields remain absent
+Expected: The homepage keeps the locked blue-and-white hero, adds a relevant photo beside How it works, keeps the mascot as a secondary guide lower on the page, and routes visitors to the dedicated donation flow without displaying the full transaction workflow.
 
-## Test 2 - Donation flow reveals one stage at a time
+## Test 2 - Pledge charity search appears in the donation form
 Viewport: desktop
-Description: Verifies the dedicated Donate a Phone page uses a clear four-stage sequence.
+Description: Verifies the configured public partner key loads the official single-organization Pledge search in Step 3.
 Steps:
 1. Navigate to /donate-phone.html
-2. Confirm Step 1 shows only phone-detail fields
-3. Tap "See my estimate"
-4. Confirm Step 2 shows the combined estimate and no donor-address form
-Expected: The progress indicator advances from Phone to Estimate and unrelated later-stage fields remain hidden.
+2. Advance through the phone and estimate stages to Step 3
+3. Find the heading "Choose the charity that your donation supports."
+4. Confirm the Pledge nonprofit search area is visible
+Expected: The charity-search section loads without exposing a secret API key and allows one nonprofit selection.
 
-## Test 3 - Donor can complete the staged packet workflow
-Viewport: desktop
-Description: Verifies the main donation workflow reaches printable documents.
-Steps:
-1. Navigate to /donate-phone.html
-2. Advance from the phone step to the estimate step and then to mailing details
-3. Fill all required donor fields and check the preparation confirmation
-4. Tap "Create donation packet"
-Expected: Step 4 displays a donation ID, Packing slip tab, Acknowledgment preview tab, and print actions.
-
-## Test 4 - Preparation confirmation blocks completion
+## Test 3 - Charity selection is required before submission
 Viewport: mobile
-Description: Verifies the required phone-preparation acknowledgment remains a guardrail.
+Description: Verifies the donation packet cannot be submitted without a Pledge organization UUID.
 Steps:
 1. Navigate to /donate-phone.html and advance to Step 3
-2. Fill all required donor fields
-3. Leave the preparation confirmation unchecked and tap "Create donation packet"
-Expected: The browser keeps the donor on Step 3 and does not display the document step.
+2. Fill all required donor fields and check the phone-preparation confirmation
+3. Do not select a charity
+4. Tap "Create donation packet"
+Expected: Focus moves to the charity section and an inline message says "Please select the charity you would like your donation to support."
 
-## Test 5 - Older-audience mobile controls remain readable
+## Test 4 - Selected charity remains visible and can be changed
+Viewport: desktop
+Description: Verifies mocked Pledge selection and removal events update the visible form state.
+Steps:
+1. Navigate to /donate-phone.html and advance to Step 3
+2. Dispatch an approved-origin mocked Pledge updateEvent with an organization UUID and name
+3. Confirm the selected-charity panel shows the nonprofit name and Pledge ID
+4. Tap "Change charity" or dispatch removeEvent
+Expected: The prior charity is cleared and the Pledge search is available for a new single selection.
+
+## Test 5 - Untrusted Pledge messages are ignored
+Viewport: desktop
+Description: Verifies browser messages from a non-Pledge origin cannot alter charity state.
+Steps:
+1. Navigate to /donate-phone.html and advance to Step 3
+2. Dispatch a mocked updateEvent from an unapproved origin
+3. Review the charity-selection section
+Expected: No charity is selected and the form state remains unchanged.
+
+## Test 6 - Existing multi-phone estimator remains usable
 Viewport: mobile
-Description: Verifies the simplified layout, progress indicator, and form controls fit a small screen.
+Description: Verifies the Pledge integration does not disrupt the existing phone workflow.
 Steps:
 1. Navigate to /donate-phone.html
-2. Review the progress indicator and phone-detail controls
-3. Add another phone and scroll through both records
-Expected: Controls are full width, labels remain visible, buttons do not overflow, and there is no horizontal scrolling.
+2. Add another phone and review both records
+3. Advance to the estimate stage
+Expected: Controls remain full width, both phones contribute to the combined estimate, and there is no horizontal scrolling.
+
+## Test 7 - Administrator submission includes the selected charity
+Viewport: desktop
+Description: Verifies a completed donation payload carries the charity name and Pledge UUID to the existing Worker endpoint.
+Steps:
+1. Navigate to /donate-phone.html and advance to Step 3
+2. Dispatch an approved-origin mocked selection with a nonprofit name and Pledge UUID
+3. Fill all required donor fields, check the preparation confirmation, and submit
+4. Inspect the submission payload or mocked Worker notification
+Expected: The submission and administrator notification contain a clearly labeled Selected Charity section with the nonprofit name and Pledge UUID.
+
+## Test 8 - Pledge widget failure is recoverable
+Viewport: mobile
+Description: Verifies a failed widget load does not break the rest of the donation form.
+Steps:
+1. Navigate to /donate-phone.html and advance to Step 3 with the Pledge script blocked
+2. Review the charity-search section
+3. Tap "Retry"
+Expected: A friendly load error and retry control are visible, the donor fields still work, and the form cannot silently submit without a charity.
+
+## Test 9 - Every page has one header notice without the EIN
+Viewport: desktop
+Description: Verifies React pages and static information pages show one consistent top notice without duplicating the header.
+Steps:
+1. Navigate to the homepage and count the top charity notices
+2. Navigate to /donate-phone.html and count the top charity notices
+3. Navigate to /prepare-phone.html and count the top charity notices
+4. Confirm the EIN remains available in the footer but not in the top notice
+Expected: Each page shows exactly one top notice reading "Donate by Mail is a U.S. 501(c)(3) public charity." The EIN is absent from the notice and remains available in the footer.
+
+## Test 10 - Progress labels are not crossed by connector lines
+Viewport: desktop
+Description: Verifies the four-stage progress indicator keeps its connector behind the step text.
+Steps:
+1. Navigate to /donate-phone.html
+2. Review the Phone, Estimate, Your details, and Documents labels
+3. Advance to Step 2 and review the progress indicator again
+Expected: Every visible step label has a clear paper-colored background, remains readable, and is not crossed or underlined by the connector line.

@@ -1,0 +1,1 @@
+.progress li{isolation:isolate}.progress li::after{z-index:0}.progress li>span,.progress li>small{position:relative;z-index:1}.progress li>small{display:inline-block;background:var(--paper);padding:0 .45rem;line-height:1.45;white-space:nowrap}@media(max-width:650px){.progress li>small{display:none}}
