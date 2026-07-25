@@ -76,15 +76,15 @@ Steps:
 3. Tap "Retry"
 Expected: A friendly load error and retry control are visible, the donor fields still work, and the form cannot silently submit without a charity.
 
-## Test 9 - Every page has one header notice without the EIN
+## Test 9 - Supporting pages guide visitors toward a next action
 Viewport: desktop
-Description: Verifies React pages and static information pages show one consistent top notice without duplicating the header.
+Description: Verifies the five main information pages use photo-led layouts, clear task-specific content, consistent site chrome, and bottom-of-page calls to action.
 Steps:
-1. Navigate to the homepage and count the top charity notices
-2. Navigate to /donate-phone.html and count the top charity notices
-3. Navigate to /prepare-phone.html and count the top charity notices
-4. Confirm the EIN remains available in the footer but not in the top notice
-Expected: Each page shows exactly one top notice reading "Donate by Mail is a U.S. 501(c)(3) public charity." The EIN is absent from the notice and remains available in the footer.
+1. Visit /how-it-works.html, /prepare-phone.html, /for-nonprofits.html, /resources.html, and /about.html
+2. On each page confirm a prominent relevant photograph is visible near the top and the shared Donate by Mail header/footer are present
+3. Confirm the donor-facing pages include a lower-page Donate a phone call to action; confirm For nonprofits ends with a pilot/contact action and a path to the donor experience
+4. On Prepare your phone and Help & FAQs confirm the Donate by Mail Labrador mascot appears as a guidance element
+Expected: Each supporting page has a distinct purpose, useful visual context, readable long-form content, and a clear next step instead of ending abruptly.
 
 ## Test 10 - Progress labels are not crossed by connector lines
 Viewport: desktop
