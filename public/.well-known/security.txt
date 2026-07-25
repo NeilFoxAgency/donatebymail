@@ -1,4 +1,4 @@
-Contact: mailto:satoshi@donatebymail.org
+Contact: mailto:tre@donatebymail.org
 Canonical: https://donatebymail.org/.well-known/security.txt
 Preferred-Languages: en
 Expires: 2027-07-20T00:00:00Z
