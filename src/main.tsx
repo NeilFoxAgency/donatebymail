@@ -5,4 +5,5 @@ import './index.css';
 import './site-flow.css';
 import './pledge.css';
 import './progress-fix.css';
+import './homepage-refresh.css';
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
