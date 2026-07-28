@@ -1,0 +1,45 @@
+.footer-social-links {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+}
+
+.site-footer .footer-social-links a {
+  width: 2.55rem;
+  height: 2.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  color: #fff;
+  text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.site-footer .footer-social-links a:hover {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.site-footer .footer-social-links a:focus-visible {
+  outline: 3px solid #9cc8ef;
+  outline-offset: 3px;
+}
+
+.footer-social-links svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+}
+
+.footer-social-links .social-icon-bluesky {
+  width: 1.18rem;
+  height: 1.18rem;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+}

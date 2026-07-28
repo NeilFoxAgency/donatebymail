@@ -1,92 +1,83 @@
 (() => {
-  if (!document.querySelector('link[data-site-shell]')) {
-    const stylesheet = document.createElement('link');
-    stylesheet.rel = 'stylesheet';
-    stylesheet.href = './site-shell.css';
-    stylesheet.dataset.siteShell = 'true';
-    document.head.appendChild(stylesheet);
+  if (!document.querySelector("link[data-site-shell]")) {
+    const s = document.createElement("link");
+    s.rel = "stylesheet";
+    s.href = "/site-shell.css";
+    s.dataset.siteShell = "true";
+    document.head.appendChild(s);
   }
-
-  const charityNotice = 'Donate by Mail is a U.S. 501(c)(3) public charity';
-  const reactRoot = document.getElementById('root');
-  const isReactOwned = (element) => Boolean(reactRoot && element && reactRoot.contains(element));
-
-  const links = [
-    ['Donate a phone', './donate-phone.html'],
-    ['How it works', './how-it-works.html'],
-    ['Prepare your phone', './prepare-phone.html'],
-    ['For nonprofits', './for-nonprofits.html'],
-    ['Help and FAQs', './resources.html'],
-    ['About', './about.html'],
-  ];
-
-  const current = window.location.pathname.split('/').pop() || 'index.html';
-  const active = (href) => current === href.replace('./', '');
-
-  const brand = `
-    <a class="brand" href="./">
-      <span class="brand-icon" aria-hidden="true">✉</span>
-      <span><strong>Donate by Mail</strong><small>Old phones. New possibilities.</small></span>
-    </a>`;
-
-  const navLinks = links.map(([label, href], index) =>
-    `<a ${active(href) ? 'aria-current="page"' : ''} class="${index === 0 ? 'nav-primary' : ''}" href="${href}">${label}</a>`
-  ).join('');
-
-  let normalizing = false;
-
+  const notice = "Donate by Mail is a U.S. 501(c)(3) public charity",
+    root = document.getElementById("root"),
+    owned = (e) => Boolean(root && e && root.contains(e)),
+    links = [
+      ["Donate a phone", "/donate-phone.html"],
+      ["How it works", "/how-it-works.html"],
+      ["Prepare your phone", "/prepare-phone.html"],
+      ["For nonprofits", "/for-nonprofits.html"],
+      ["Help and FAQs", "/resources.html"],
+      ["About", "/about.html"],
+    ],
+    current = location.pathname.split("/").pop() || "index.html",
+    active = (h) => current === h.replace("/", ""),
+    brand =
+      '<a class="site-brand-logo" href="/" aria-label="Donate by Mail home"><img src="/resources/donate-by-mail-logo.png" alt="Donate by Mail"></a>',
+    social = `<nav class="footer-social-links" aria-label="Donate by Mail social media"><a href="https://x.com/donatebymail" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a><a href="https://www.facebook.com/people/Donate-by-Mail/61551982935106/" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on Facebook"><svg viewBox="0 0 320 512" aria-hidden="true"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06H297V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"/></svg></a><a href="https://bsky.app/profile/donatebymail.bsky.social" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on Bluesky"><img class="social-icon-bluesky" src="/resources/bluesky-white-icon.png" alt="" width="512" height="512" aria-hidden="true"></a></nav>`,
+    nav = links
+      .map(
+        ([l, h], i) =>
+          `<a ${active(h) ? 'aria-current="page"' : ""} class="${i === 0 ? "nav-primary" : ""}" href="${h}">${l}</a>`,
+      )
+      .join("");
+  let busy = false;
   const normalize = () => {
-    if (normalizing) return;
-    normalizing = true;
-
+    if (busy) return;
+    busy = true;
     try {
-      const header = document.querySelector('header');
-      if (header && !isReactOwned(header) && !header.dataset.sharedShell) {
-        header.dataset.sharedShell = 'true';
-        header.className = 'site-header';
-        header.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${navLinks}</nav><button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${navLinks}</nav>`;
-        const button = header.querySelector('.menu-button');
-        const mobile = header.querySelector('.mobile-nav');
-        button?.addEventListener('click', () => {
-          const open = button.getAttribute('aria-expanded') === 'true';
-          button.setAttribute('aria-expanded', String(!open));
-          button.setAttribute('aria-label', open ? 'Open menu' : 'Close menu');
-          button.textContent = open ? 'Menu' : 'Close';
-          if (mobile) mobile.hidden = open;
+      const h = document.querySelector("header");
+      if (h && !owned(h) && !h.dataset.sharedShell) {
+        h.dataset.sharedShell = "true";
+        h.className = "site-header";
+        h.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${nav}</nav><button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${nav}</nav>`;
+        const b = h.querySelector(".menu-button"),
+          m = h.querySelector(".mobile-nav");
+        b?.addEventListener("click", () => {
+          const o = b.getAttribute("aria-expanded") === "true";
+          b.setAttribute("aria-expanded", String(!o));
+          b.setAttribute("aria-label", o ? "Open menu" : "Close menu");
+          b.textContent = o ? "Menu" : "Close";
+          if (m) m.hidden = o;
         });
       }
-
-      const bars = Array.from(document.querySelectorAll('.top, .topline, .charity-bar'));
-      let primaryBar = bars.find((bar) => isReactOwned(bar)) || bars[0];
-
-      // React entry pages render their own notice. Do not create a competing one
-      // before the app has mounted. Static pages receive one shared notice here.
-      if (!primaryBar && !reactRoot) {
-        primaryBar = document.createElement('div');
-        document.body.prepend(primaryBar);
+      const bars = Array.from(
+        document.querySelectorAll(".top,.topline,.charity-bar"),
+      );
+      let primary = bars.find(owned) || bars[0];
+      if (!primary && !root) {
+        primary = document.createElement("div");
+        document.body.prepend(primary);
       }
-
-      if (primaryBar) {
-        primaryBar.className = 'charity-bar';
-        if (primaryBar.textContent !== charityNotice) primaryBar.textContent = charityNotice;
-        bars.filter((bar) => bar !== primaryBar).forEach((bar) => bar.remove());
+      if (primary) {
+        primary.className = "charity-bar";
+        if (primary.textContent !== notice) primary.textContent = notice;
+        bars.filter((bar) => bar !== primary).forEach((bar) => bar.remove());
       }
-
-      const footer = document.querySelector('footer');
-      if (footer && !isReactOwned(footer) && !footer.dataset.sharedShell) {
-        footer.dataset.sharedShell = 'true';
-        footer.className = 'site-footer';
-        footer.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:satoshi@donatebymail.org">satoshi@donatebymail.org</a></p></div><div><h2>Get started</h2><a href="./donate-phone.html">Donate a phone</a><a href="./prepare-phone.html">Prepare your phone</a><a href="./receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="./how-it-works.html">How it works</a><a href="./for-nonprofits.html">For nonprofits</a><a href="./resources.html">Help and FAQs</a><a href="./transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="./about.html">About us</a><a href="./contact.html">Contact</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./accessibility.html">Accessibility</a></div></div>`;
+      const f = document.querySelector("footer");
+      if (f && !owned(f) && !f.dataset.sharedShell) {
+        f.dataset.sharedShell = "true";
+        f.className = "site-footer";
+        f.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:tre@donatebymail.org">tre@donatebymail.org</a></p>${social}</div><div><h2>Get started</h2><a href="/donate-phone.html">Donate a phone</a><a href="/prepare-phone.html">Prepare your phone</a><a href="/phone-drives.html">Host a phone drive</a><a href="/get-involved.html">Get involved</a><a href="/receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="/how-it-works.html">How it works</a><a href="/for-nonprofits.html">For nonprofits</a><a href="/resources.html">Help and FAQs</a><a href="/transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="/about.html">About us</a><a href="/team.html">Our team</a><a href="/contact.html">Contact</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><a href="/accessibility.html">Accessibility</a></div></div>`;
       }
     } finally {
-      normalizing = false;
+      busy = false;
     }
   };
-
   normalize();
   requestAnimationFrame(normalize);
-
   const observer = new MutationObserver(normalize);
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-  window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  addEventListener("pagehide", () => observer.disconnect(), { once: true });
 })();

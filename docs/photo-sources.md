@@ -4,28 +4,36 @@ The website uses a restrained set of documentary-style photographs from Pexels. 
 
 Pexels license: https://www.pexels.com/license/
 
-## Hero - phone and shipping handoff
+## Homepage hero
+
+- Asset: `public/resources/phone-donation-hero.png`
+- Use: homepage hero
+- Status: existing Donate by Mail site asset, retained for this revision
+
+## Unused phone value story
+
+- Photographer: Atahan Demir
+- Pexels photo: https://www.pexels.com/photo/a-smart-phone-on-a-table-16168366/
+- Local asset: `public/resources/home-unused-phone.webp`
+- Use: homepage section explaining that an unused phone can still have value
+- Treatment: localized and compressed to WebP, with a close vertical crop
+
+## Phone preparation and data safety
 
 - Photographer: Kampus Production
 - Pexels photo: https://www.pexels.com/photo/a-smartphone-on-a-carton-box-6682783/
-- Use: right side of the homepage hero
-- Treatment: crop centered on the smartphone, shipping carton, and visible package label, with a light navy tonal overlay
-- Rationale: clearly communicates phone plus mail logistics without reading as gift wrapping
+- Local asset: `public/resources/home-phone-preparation.webp`
+- Use: homepage data-safety and phone-preparation section
+- Treatment: localized and compressed to WebP, cropped around the smartphone and shipping carton
 
-## Data preparation
+## Nonprofit partnership
 
-- Photographer: Adrienn
-- Pexels photo: https://www.pexels.com/photo/person-using-smartphone-1458283/
-- Use: data-security and phone-preparation section
-- Treatment: close crop focused on hands and device
-
-## Mission and electronic waste
-
-- Photographer: Leo Arslan
-- Pexels photo: https://www.pexels.com/photo/pile-of-electronic-waste-19037726/
-- Use: closing mission call to action
-- Treatment: documentary crop paired with the red Donate by Mail message panel
+- Photographer: Gustavo Fring
+- Pexels photo: https://www.pexels.com/photo/people-packing-donations-7156168/
+- Local asset: `public/resources/home-nonprofit-volunteers.webp`
+- Use: secondary nonprofit-partnership section near the bottom of the homepage
+- Treatment: localized and compressed to WebP, cropped around the volunteers and donated goods
 
 ## Production note
 
-The preview references optimized Pexels CDN URLs. Before high-volume production traffic, these images may be copied into the organization's own Cloudflare asset pipeline or Cloudflare Images account, while retaining this source record and complying with the Pexels license.
+All homepage stock images are served from local site assets rather than hotlinked from Pexels. The people shown are stock-photo subjects and should not be presented as Donate by Mail donors, volunteers, partners, or endorsers.

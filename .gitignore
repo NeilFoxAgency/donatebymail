@@ -3,3 +3,7 @@ dist/
 .dev.vars
 .wrangler/
 .DS_Store
+.env
+.env.*
+!.env.example
+supabase/.temp/

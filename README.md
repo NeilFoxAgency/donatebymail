@@ -61,6 +61,37 @@ Then deploy:
 npm run deploy
 ```
 
+### Beta environment
+
+The isolated beta Worker is deployed to `beta.donatebymail.org`. Beta responses
+include an `X-Robots-Tag` header that prevents the testing copy from being
+indexed. Deploying beta does not update the production Worker or its domains.
+
+The beta environment has its own Cloudflare secrets. Configure each secret once
+through Wrangler's secure prompt (never through a Vite variable or committed
+file):
+
+```bash
+npx wrangler secret put BREVO_API_KEY --env beta
+npx wrangler secret put PLEDGE_API_KEY --env beta
+npx wrangler secret put SUPABASE_URL --env beta
+npx wrangler secret put SUPABASE_PUBLISHABLE_KEY --env beta
+npx wrangler secret put SUPABASE_SECRET_KEY --env beta
+npx wrangler secret put DONATION_TRACKING_SECRET --env beta
+npx wrangler secret put AGENT_API_KEY --env beta
+```
+
+Validate or deploy the current build to beta:
+
+```bash
+npm run deploy:beta:dry-run
+npm run deploy:beta
+```
+
+Beta intentionally does not use Turnstile so its workflows can be exercised by
+automated testing. Turnstile and server-side rate limiting are production
+cutover requirements for anonymous write endpoints.
+
 ## Security and privacy
 
 See `public/.well-known/security.txt` and the project documentation. Drafts are stored in the donor's browser. Final form data is validated by the Worker and emailed to the configured Donate by Mail administrator; it is not stored in a new database by this feature.

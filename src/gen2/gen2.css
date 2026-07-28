@@ -1,0 +1,12 @@
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.account-card, .partner-organization, .campaign-editor, .campaign-story { border: 1px solid #c9c2b6; background: #fff; padding: clamp(1.1rem, 3vw, 2rem); }
+.inline-ops, .campaign-editor { display: grid; gap: .8rem; margin-top: 1.25rem; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+.campaign-public { background: #f7f3ea; color: #14243a; min-height: 70vh; }
+.campaign-hero, .campaign-story { width: min(72rem, calc(100% - 2rem)); margin: 0 auto; }
+.campaign-hero { padding: clamp(3rem, 8vw, 7rem) 0; }
+.campaign-hero h1 { font-family: Georgia, serif; font-size: clamp(2.8rem, 7vw, 6.4rem); line-height: 1; max-width: 14ch; }
+.campaign-summary { font-size: clamp(1.2rem, 2.5vw, 1.65rem); max-width: 45rem; }
+.campaign-hero img { width: min(100%, 48rem); max-height: 28rem; object-fit: cover; margin-bottom: 2rem; }
+.campaign-story { margin-bottom: 5rem; max-width: 58rem; }
+.campaign-story aside { border-left: .4rem solid #bf2d3c; padding-left: 1.25rem; margin-top: 2rem; }

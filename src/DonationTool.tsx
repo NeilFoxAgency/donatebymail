@@ -10,7 +10,6 @@ import {
   Info,
   LockKeyhole,
   Mail,
-  PackageCheck,
   Plus,
   Printer,
   Save,
@@ -25,7 +24,7 @@ type Brand = 'Apple' | 'Samsung' | 'Google' | 'Motorola' | 'Other';
 type Age = '0-1 year' | '2-3 years' | '4-5 years' | '6+ years';
 type Condition = 'Excellent' | 'Good' | 'Fair' | 'Damaged';
 type Storage = '64 GB or less' | '128 GB' | '256 GB' | '512 GB+';
-type ShippingMethod = 'printable-label' | 'mailed-kit';
+type ShippingMethod = 'donor-paid';
 
 type Device = {
   id: string;
@@ -115,7 +114,7 @@ const money = (value: number) => new Intl.NumberFormat('en-US', {
 }).format(value);
 
 const donationId = () => {
-  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  const date = new Date().toISOString().slice(0, 10).split('-').join('');
   const random = Math.random().toString(36).slice(2, 7).toUpperCase();
   return `DBM-${date}-${random}`;
 };
@@ -130,14 +129,6 @@ function SelectField({ label, value, options, onChange }: { label: string; value
 
 function Logo() {
   return <span className="brand-mark h-12 w-12"><Mail className="relative z-10 h-6 w-6 text-white" /></span>;
-}
-
-function openMailRequest(record: DonationRecord) {
-  const deviceLines = record.devices.map((device, index) => `${index + 1}. ${device.brand} ${device.model || 'smartphone'}, ${device.condition}, ${device.storage}`).join('\n');
-  const subject = encodeURIComponent(`Prepaid phone donation request ${record.id}`);
-  const body = encodeURIComponent(`Hello Donate by Mail,\n\nI would like to request ${record.shippingMethod === 'printable-label' ? 'a printable prepaid shipping label' : 'a mailed shipping kit'} for donation ${record.id}.\n\nDonor: ${record.donor.name}\nEmail: ${record.donor.email}\nMailing address: ${record.donor.address1}${record.donor.address2 ? `, ${record.donor.address2}` : ''}, ${record.donor.city}, ${record.donor.state} ${record.donor.zip}\n\nDevices:\n${deviceLines}\n\nThank you.`);
-  trackEvent('prepaid_label_request_started', { donation_id: record.id, device_count: record.devices.length });
-  window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
 }
 
 function PrintDocument({ record, kind, onClose }: { record: DonationRecord; kind: 'packing' | 'acknowledgment'; onClose: () => void }) {
@@ -176,7 +167,7 @@ export function loadLatestRecord(): DonationRecord | null {
 export default function DonationTool({ onComplete }: { onComplete: (record: DonationRecord) => void }) {
   const [devices, setDevices] = useState<Device[]>([newDevice('phone-1')]);
   const [donor, setDonor] = useState<DonorDetails>(blankDonor);
-  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>('printable-label');
+  const shippingMethod: ShippingMethod = 'donor-paid';
   const [prepared, setPrepared] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
 
@@ -202,7 +193,6 @@ export default function DonationTool({ onComplete }: { onComplete: (record: Dona
       const parsed = JSON.parse(saved) as { devices: Device[]; donor: DonorDetails; shippingMethod: ShippingMethod };
       setDevices(parsed.devices);
       setDonor(parsed.donor);
-      setShippingMethod(parsed.shippingMethod);
       trackEvent('donation_draft_restored');
     } catch {
       window.localStorage.removeItem(draftKey);
@@ -235,7 +225,7 @@ export default function DonationTool({ onComplete }: { onComplete: (record: Dona
 
     <form onSubmit={submit} className="card p-6 sm:p-8" aria-labelledby="mailing-heading"><p className="eyebrow">Step 2</p><h2 id="mailing-heading" className="font-display text-3xl font-bold text-[#102d4f]">Create your donor packet</h2><p className="mt-3 max-w-3xl leading-7 text-slate-600">Enter the contact information that should appear on your packing slip and eventual acknowledgment. This preview stores the completed record in your browser only.</p>
       <div className="mt-7 grid gap-5 sm:grid-cols-2"><Field label="Full name" required><input required autoComplete="name" className="input-control" value={donor.name} onChange={(event) => updateDonor('name', event.target.value)} /></Field><Field label="Email" required><input required type="email" autoComplete="email" className="input-control" value={donor.email} onChange={(event) => updateDonor('email', event.target.value)} /></Field><Field label="Street address" required><input required autoComplete="address-line1" className="input-control" value={donor.address1} onChange={(event) => updateDonor('address1', event.target.value)} /></Field><Field label="Apartment, suite, or unit"><input autoComplete="address-line2" className="input-control" value={donor.address2} onChange={(event) => updateDonor('address2', event.target.value)} /></Field><Field label="City" required><input required autoComplete="address-level2" className="input-control" value={donor.city} onChange={(event) => updateDonor('city', event.target.value)} /></Field><div className="grid grid-cols-[1fr_1.3fr] gap-4"><SelectField label="State" value={donor.state} options={states} onChange={(value) => updateDonor('state', value)} /><Field label="ZIP code" required><input required inputMode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" autoComplete="postal-code" className="input-control" value={donor.zip} onChange={(event) => updateDonor('zip', event.target.value)} /></Field></div></div>
-      <fieldset className="mt-7"><legend className="text-sm font-bold text-slate-800">Preferred mailing method</legend><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className={`choice-card ${shippingMethod === 'printable-label' ? 'choice-card-active' : ''}`}><input className="sr-only" type="radio" checked={shippingMethod === 'printable-label'} onChange={() => setShippingMethod('printable-label')} /><Printer className="h-5 w-5 text-[#174f8c]" /><strong>Printable prepaid label</strong><span>Request a label and use your own sturdy box.</span></label><label className={`choice-card ${shippingMethod === 'mailed-kit' ? 'choice-card-active' : ''}`}><input className="sr-only" type="radio" checked={shippingMethod === 'mailed-kit'} onChange={() => setShippingMethod('mailed-kit')} /><PackageCheck className="h-5 w-5 text-[#174f8c]" /><strong>Mailed donation kit</strong><span>Request packaging and printed instructions.</span></label></div></fieldset>
+      <div className="mt-7 rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm leading-7 text-[#102d4f]"><Mail className="mb-2 h-5 w-5" /><strong>Use your own packaging and pay for postage.</strong><br />Your printable mailing label will be addressed to Donate By Mail, 4103 Tropical Isle Blvd, Apt 124, Kissimmee, FL 34741.</div>
       <label className="mt-7 flex items-start gap-3 rounded-2xl bg-slate-100 p-5"><input required type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[#174f8c]" checked={prepared} onChange={(event) => setPrepared(event.target.checked)} /><span className="text-sm leading-7 text-slate-700">I understand that I should back up needed files, sign out of accounts, remove activation locks, factory reset each phone when possible, and never include passwords or passcodes.</span></label>
       <button className="button-primary mt-6 w-full justify-center py-4" type="submit"><FileCheck2 className="h-5 w-5" />Create donation packet <ArrowRight className="h-4 w-4" /></button>
     </form>
@@ -252,8 +242,8 @@ export function DonationThankYou({ record, onStartOver }: { record: DonationReco
     window.setTimeout(() => setCopied(false), 1800);
   };
 
-  return <div className="mx-auto max-w-5xl px-5 py-16 lg:px-8"><div className="rounded-3xl bg-[#102d4f] p-7 text-white sm:p-10"><span className="grid h-16 w-16 place-items-center rounded-full bg-white text-[#174f8c]"><CheckCircle2 className="h-8 w-8" /></span><p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Donation packet created</p><h1 className="mt-2 font-display text-4xl font-bold">Thank you, {record.donor.name}.</h1><p className="mt-4 max-w-3xl text-lg leading-8 text-blue-100">Your browser has created a packing slip and a pending acknowledgment preview. Request your mailing materials by email, then include the packing slip in your package.</p><button onClick={copyId} className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/30 px-5 py-2.5 font-bold"><Copy className="h-4 w-4" />{copied ? 'Copied' : record.id}</button></div>
-    <div className="mt-8 grid gap-5 md:grid-cols-3"><button className="action-card" onClick={() => openMailRequest(record)}><Mail className="h-7 w-7 text-[#c9273d]" /><strong>Request mailing materials</strong><span>Open a prefilled email for your label or kit.</span></button><button className="action-card" onClick={() => setDocument('packing')}><FileText className="h-7 w-7 text-[#174f8c]" /><strong>Print packing slip</strong><span>Place this document inside your package.</span></button><button className="action-card" onClick={() => setDocument('acknowledgment')}><ShieldCheck className="h-7 w-7 text-[#174f8c]" /><strong>Preview acknowledgment</strong><span>See the format issued after receipt and verification.</span></button></div>
+  return <div className="mx-auto max-w-5xl px-5 py-16 lg:px-8"><div className="rounded-3xl bg-[#102d4f] p-7 text-white sm:p-10"><span className="grid h-16 w-16 place-items-center rounded-full bg-white text-[#174f8c]"><CheckCircle2 className="h-8 w-8" /></span><p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Donation packet created</p><h1 className="mt-2 font-display text-4xl font-bold">Thank you, {record.donor.name}.</h1><p className="mt-4 max-w-3xl text-lg leading-8 text-blue-100">Your browser has created a packing slip and a pending acknowledgment preview. Print the mailing label, purchase postage from your chosen carrier, and include the packing slip in your package.</p><button onClick={copyId} className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/30 px-5 py-2.5 font-bold"><Copy className="h-4 w-4" />{copied ? 'Copied' : record.id}</button></div>
+    <div className="mt-8 grid gap-5 md:grid-cols-2"><button className="action-card" onClick={() => setDocument('packing')}><FileText className="h-7 w-7 text-[#174f8c]" /><strong>Print mailing label and packing slip</strong><span>Attach the addressed label outside and place the packing slip inside.</span></button><button className="action-card" onClick={() => setDocument('acknowledgment')}><ShieldCheck className="h-7 w-7 text-[#174f8c]" /><strong>Preview acknowledgment</strong><span>See the format issued after receipt and verification.</span></button></div>
     <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm leading-7 text-[#7f1d2d]"><LockKeyhole className="mb-2 h-5 w-5" /><strong>Your acknowledgment is not final yet.</strong> The official document must show the actual receipt date and be authorized after Donate by Mail receives the phones. The estimate is intentionally excluded.</div>
     <button className="button-secondary mt-8" onClick={onStartOver}>Start another donation</button>
     {document && <PrintDocument record={record} kind={document} onClose={() => setDocument(null)} />}
