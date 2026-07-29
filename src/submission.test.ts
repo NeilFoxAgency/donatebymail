@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  buildBetaAdministratorNotification,
   buildAdministratorNotification,
   buildDonorConfirmation,
   validateDonationSubmission,
@@ -8,6 +9,7 @@ import {
 } from "./submission";
 const submission: DonationSubmission = {
   id: "DBM-20260722-ABCDE",
+  clientSubmissionKey: "71000000-0000-4000-8000-000000000001",
   createdAt: "2026-07-22T03:00:00.000Z",
   donor: {
     firstName: "Sample",
@@ -46,6 +48,12 @@ const submission: DonationSubmission = {
   },
 };
 describe("submission and notification", () => {
+  it("keeps routine beta administrator notifications free of donor mailing PII", () => {
+    const message = buildBetaAdministratorNotification(submission, "https://beta.donatebymail.org/staff");
+    expect(message).not.toContain(submission.donor.email);
+    expect(message).not.toContain(submission.donor.address1);
+    expect(message).toContain(submission.id);
+  });
   it("rejects no charity", () => {
     const { charity: _charity, ...value } = submission;
     expect(validateDonationSubmission(value)).toBe(false);

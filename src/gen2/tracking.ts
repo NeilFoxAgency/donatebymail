@@ -20,7 +20,29 @@ async function hmac(secret: string, message: string): Promise<string> {
 }
 
 export function trackingMessage(donationId: string, nonce: string): string {
-  return `${donationId}.${nonce}`;
+  return `tracking:${donationId}.${nonce}`;
+}
+
+export function claimMessage(donationId: string, nonce: string): string {
+  return `claim:${donationId}.${nonce}`;
+}
+
+export async function createClaimToken(secret: string, donationId: string, nonce: string): Promise<string> {
+  return hmac(secret, claimMessage(donationId, nonce));
+}
+
+export async function verifyClaimToken(secret: string, donationId: string, nonce: string, candidate: string): Promise<boolean> {
+  const expected = await createClaimToken(secret, donationId, nonce);
+  if (expected.length !== candidate.length) return false;
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) difference |= expected.charCodeAt(index) ^ candidate.charCodeAt(index);
+  return difference === 0;
+}
+
+export function claimUrl(origin: string, publicId: string, token: string): string {
+  const base = new URL("/account", origin);
+  base.search = new URLSearchParams({ donation: publicId, claim: token }).toString();
+  return base.toString();
 }
 
 export async function createTrackingToken(

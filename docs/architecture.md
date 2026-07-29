@@ -42,6 +42,9 @@ Browser
 ```
 
 - Secret and service-role credentials are Worker-only.
+- Passwordless auth uses cross-device PKCE state in the private database and an
+  encrypted host-only `HttpOnly` cookie. Browser code never stores or sends a
+  Supabase bearer token; mutations require same-origin session-bound CSRF proof.
 - Operational tables live in `app_private`, outside the exposed `public`
   schema, with explicit grants and RLS enabled.
 - `api` contains narrow reviewed functions. It is not a generic CRUD surface.
@@ -100,6 +103,13 @@ centralized so encrypted storage and keyed lookup can be added later without
 changing donation identifiers or public APIs. See the repository threat model
 for the decision criteria.
 
+Donations are never claimed by an email-matching read. A verified donor must
+use an expiring, donation-specific, one-time HMAC capability. Campaigns refer
+to canonical verified charities and verified organization-to-charity links.
+Campaign validation, beneficiary match, attribution, and policy snapshot occur
+inside the donation-creation transaction. Revisions can reference only
+controlled campaign assets, not mutable partner-provided remote image URLs.
+
 ## Receipt and donor-document rules
 
 - The donor purchases postage and receives a printable address label and
@@ -129,5 +139,7 @@ and semantic agent-policy evaluation. These surfaces remain beta-only and are
 not authorization to deploy or migrate production.
 
 Turnstile is intentionally omitted from beta so automated and human testing can
-exercise the flows. It is a required production-cutover control for anonymous
-write endpoints, paired with server-side verification and rate limiting.
+exercise the flows. The beta is synthetic-data-only and applies server-side
+rate limits to anonymous donations and magic-link requests; it is not approved
+for real donor PII. Turnstile remains a required production-cutover control for
+anonymous write endpoints.

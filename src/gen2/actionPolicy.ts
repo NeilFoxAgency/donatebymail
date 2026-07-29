@@ -12,12 +12,13 @@ export type ActorKind =
   | "agent"
   | "system";
 
-export type RiskLevel = "low" | "moderate" | "high" | "critical";
+import { HUMAN_ONLY_AGENT_COMMANDS, type RiskLevel, type SemanticCommand } from "./commandRegistry";
+export type { RiskLevel } from "./commandRegistry";
 
 export interface ActionPolicyRule {
   id: string;
   policyVersion: number;
-  command: string;
+  command: SemanticCommand | "*";
   actorKind: ActorKind | "any";
   riskLevels: RiskLevel[];
   targetType?: string;
@@ -29,7 +30,7 @@ export interface ActionPolicyRule {
 }
 
 export interface ActionPolicyInput {
-  command: string;
+  command: SemanticCommand;
   actorKind: ActorKind;
   riskLevel: RiskLevel;
   targetType?: string;
@@ -43,20 +44,6 @@ export interface ActionPolicyDecision {
   policyVersion: number | null;
 }
 
-const agentDeniedCommands = new Set([
-  "record_physical_receipt",
-  "record_device_inspection",
-  "verify_device_wipe",
-  "record_device_valuation",
-  "approve_final_financials",
-  "execute_disbursement",
-  "manage_credentials",
-  "arbitrary_database_query",
-  "grant_role",
-  "export_unrestricted_pii",
-  "deploy_production",
-]);
-
 const ruleIsActive = (rule: ActionPolicyRule, instant: number) => {
   const startsAt = Date.parse(rule.effectiveFrom);
   const endsAt = rule.effectiveTo
@@ -69,7 +56,7 @@ export function evaluateActionPolicy(
   rules: ActionPolicyRule[],
   input: ActionPolicyInput,
 ): ActionPolicyDecision {
-  if (input.actorKind === "agent" && agentDeniedCommands.has(input.command)) {
+  if (input.actorKind === "agent" && HUMAN_ONLY_AGENT_COMMANDS.has(input.command)) {
     return {
       outcome: "DENY",
       rationaleCode: "agent_command_safety_boundary",

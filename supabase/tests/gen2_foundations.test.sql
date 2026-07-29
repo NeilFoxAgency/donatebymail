@@ -226,14 +226,22 @@ insert into app_private.organizations (id,name,slug,status,created_by) values (
   '30000000-0000-0000-0000-000000000002','Route Test','route-test','active',
   '30000000-0000-0000-0000-000000000003'
 );
+insert into app_private.charities(id,pledge_id,canonical_name,status,verified_by,verified_at) values(
+  '30000000-0000-0000-0000-000000000004','3685b542-61d5-45da-9580-162dca725966',
+  'Route Test Charity','verified','30000000-0000-0000-0000-000000000003',now()
+);
+insert into app_private.organization_charities(organization_id,charity_id,status,verified_by,verified_at) values(
+  '30000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000004','verified',
+  '30000000-0000-0000-0000-000000000003',now()
+);
 insert into app_private.campaigns (
   id,organization_id,slug,name,selected_charity_pledge_id,
-  selected_charity_name,created_by
+  selected_charity_name,charity_id,created_by
 ) values (
   '30000000-0000-0000-0000-000000000001',
   '30000000-0000-0000-0000-000000000002',
   'give-kids-the-world','Give Kids the World',
-  '3685b542-61d5-45da-9580-162dca725966','Route Test Charity',
+  '3685b542-61d5-45da-9580-162dca725966','Route Test Charity','30000000-0000-0000-0000-000000000004',
   '30000000-0000-0000-0000-000000000003'
 );
 select lives_ok(

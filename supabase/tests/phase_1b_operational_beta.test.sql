@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(36);
+select plan(37);
 
 select has_table('app_private', 'donor_contacts', 'private donor contacts exist');
 select has_table('app_private', 'donations', 'persistent donations exist');
@@ -34,12 +34,12 @@ select is(
   'authenticated callers cannot query donations directly'
 );
 select is(
-  has_function_privilege('anon', 'api.create_donation(jsonb,uuid)', 'execute'),
+  has_function_privilege('anon', 'api.create_donation(jsonb,uuid,uuid,text,text)', 'execute'),
   false,
   'anonymous callers cannot execute donation intake directly'
 );
 select is(
-  has_function_privilege('service_role', 'api.create_donation(jsonb,uuid)', 'execute'),
+  has_function_privilege('service_role', 'api.create_donation(jsonb,uuid,uuid,text,text)', 'execute'),
   true,
   'the Worker service role can execute narrow donation intake'
 );
@@ -49,7 +49,7 @@ select set_config('request.jwt.claim.role', 'service_role', true);
 create temporary table phase_1b_result as
 select api.create_donation(
   '{
-    "id":"client-beta-0001",
+    "id":"DBM-CLIENT-PREVIEW","clientSubmissionKey":"71000000-0000-4000-8000-000000000099",
     "createdAt":"2026-07-28T04:30:00Z",
     "shippingMethod":"label",
     "donor":{
@@ -71,7 +71,9 @@ select api.create_donation(
        "powersOn":true,"unlocked":false}
     ]
   }'::jsonb,
-  '71000000-0000-4000-8000-000000000001'::uuid
+  '71000000-0000-4000-8000-000000000001'::uuid,
+  '71000000-0000-4000-8000-000000000002'::uuid,
+  repeat('a',64),null
 ) as result;
 
 select matches(
@@ -99,15 +101,26 @@ select is(
   1::bigint,
   'donation creation atomically creates a notification outbox item'
 );
+select throws_ok(
+  $$select api.create_donation(
+    jsonb_build_object(
+      'id','DBM-CLIENT-PREVIEW','clientSubmissionKey','71000000-0000-4000-8000-000000000099',
+      'donor','{}'::jsonb,'charity','{}'::jsonb,
+      'devices','[]'::jsonb
+    ), '71000000-0000-4000-8000-000000000003'::uuid,
+    '71000000-0000-4000-8000-000000000004'::uuid,repeat('b',64),null)$$,
+  '23505','idempotency key payload mismatch','altered idempotent replay is rejected'
+);
 select is(
   (api.create_donation(
-    jsonb_build_object(
-      'id','client-beta-0001','donor','{}'::jsonb,'charity','{}'::jsonb,
-      'devices','[]'::jsonb
-    ), '71000000-0000-4000-8000-000000000002'::uuid
-  ) ->> 'created')::boolean,
-  false,
-  'the client submission key makes intake idempotent'
+    (select jsonb_build_object('id','DBM-CLIENT-PREVIEW','clientSubmissionKey','71000000-0000-4000-8000-000000000099',
+      'shippingMethod','label','donor',jsonb_build_object('firstName','Beta','middleName','','lastName','Donor','email','beta.donor@example.com',
+      'address1','123 Test St','address2','','city','Kissimmee','state','FL','zip','34741','country','US','marketingEmailConsent',false),
+      'charity',jsonb_build_object('pledgeId','3685b542-61d5-45da-9580-162dca725966','name','American Kidney Fund'),
+      'devices',jsonb_build_array(jsonb_build_object('id','phone-1','brand','Apple','model','iPhone 13','age','2-3 years','condition','Good','storage','128 GB','powersOn',true,'unlocked',true),
+        jsonb_build_object('id','phone-2','brand','Google','model','Pixel 7','age','2-3 years','condition','Fair','storage','128 GB','powersOn',true,'unlocked',false)))),
+    gen_random_uuid(),gen_random_uuid(),repeat('a',64),null)->>'created')::boolean,false,
+  'identical retry returns the original result without another creation'
 );
 select is(
   (select count(*)::bigint from app_private.donations), 1::bigint,

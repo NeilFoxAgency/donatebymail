@@ -82,9 +82,15 @@ negative authorization tests.
 
 A stolen or replayed session, stale authorization claim, user-controlled JWT
 metadata, or incomplete RLS policy could expose other donors or organizations.
-Authorization therefore uses database memberships rather than user metadata,
-short-lived/rotated sessions, explicit grants, RLS with ownership predicates,
-server-side checks for sensitive commands, and production MFA for staff.
+Authorization uses database memberships rather than user metadata. Passwordless
+links use PKCE with the verifier held temporarily in the private database so a
+callback works across devices. The Worker exchanges the code and stores the
+Supabase access/refresh pair only inside an AES-GCM-sealed, `HttpOnly`, `Secure`,
+`SameSite=Lax`, host-only cookie. It refreshes short-lived access tokens,
+enforces a seven-day absolute session limit, invalidates the upstream session
+on logout, and requires same-origin, session-bound CSRF proof for mutations.
+Browser code never receives the Supabase authorization tokens. Staff authority
+is rechecked against active database membership after callback and on requests.
 
 ### Service credentials and supply chain
 
@@ -103,8 +109,11 @@ records, centralizes contact access, and avoids email/address foreign keys.
 Field-level encryption would reduce disclosure from database/backup access but
 would introduce a separate high-value key, rotation/recovery obligations,
 reduced support search, and the possibility of permanent data loss. It is not a
-Phase 1A requirement because beta holds test data and no contact records are yet
-implemented. Reassess before real donor PII is stored, using documented support
+Phase 1 requirement because the beta is restricted to synthetic data. Contact
+records are implemented and currently store plaintext names, email, and postal
+address in private `app_private.donor_contacts`, protected by explicit grants,
+RLS, and Worker-only repositories. Reassess before real donor PII is stored,
+using documented support
 lookup needs, incident recovery, backup access, key escrow, rotation ownership,
 and restore drills. The schema boundary must allow ciphertext and keyed lookup
 to replace plaintext without changing business identifiers.
@@ -126,6 +135,26 @@ Retries can duplicate email or external effects, while an email outage can hide
 a donation if persistence depends on delivery. The transaction commits business
 state and an outbox item first. Handlers are idempotent, leased, bounded, and
 redacted; failures become visible without discarding the business record.
+
+### Browser hardening and administrative email
+
+The Worker deploys a CSP with exact production and staging Pledge origins,
+denies framing and object embedding, restricts forms and connections, and adds
+`Referrer-Policy`, `Permissions-Policy`, `X-Content-Type-Options`, and
+`X-Frame-Options`. API and authenticated surfaces use `Cache-Control: no-store`.
+Routine beta administrator notices contain only the public donation ID,
+charity, device count, status, and authenticated staff link. Donor email and
+street address stay in the private workspace rather than routine email.
+
+### Current beta abuse boundary
+
+The beta is a public, synthetic-data-only test environment, not a public beta
+approved for real donor data. Turnstile remains absent so automation can test
+the flow. Anonymous donation and passwordless-email endpoints use server-side,
+privacy-preserving IP-bucket rate limits, generic authentication responses,
+bounded payloads, and idempotent email delivery. Production cutover still
+requires server-verified Turnstile and a separate review; Cloudflare Access is
+an optional stronger boundary for staff-only test periods.
 
 ### Out-of-scope attacker stories
 

@@ -15,8 +15,12 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      attach_campaign_to_donation: {
-        Args: { campaign_slug: string; candidate_donation_id: string }
+      claim_donation: {
+        Args: {
+          actor_user_id: string
+          candidate_donation_id: string
+          verified_email: string
+        }
         Returns: Json
       }
       claim_outbox_events: {
@@ -40,21 +44,45 @@ export type Database = {
         Args: { event_id: string; worker_id: string }
         Returns: boolean
       }
+      consume_anonymous_rate_limit: {
+        Args: {
+          action_value: string
+          bucket_hash_value: string
+          maximum_requests: number
+          window_seconds: number
+        }
+        Returns: boolean
+      }
+      consume_auth_login_attempt: {
+        Args: { state_hash_value: string }
+        Returns: Json
+      }
+      create_auth_login_attempt: {
+        Args: {
+          destination_value: string
+          expires_at_value: string
+          state_hash_value: string
+          storage_value: Json
+        }
+        Returns: undefined
+      }
       create_donation: {
-        Args: { payload: Json; tracking_nonce: string }
+        Args: {
+          campaign_slug?: string
+          claim_nonce: string
+          payload: Json
+          request_hash_value: string
+          tracking_nonce: string
+        }
         Returns: Json
       }
-      donor_account_overview: {
-        Args: { actor_user_id: string; verified_email: string }
-        Returns: Json
-      }
+      donor_account_overview: { Args: { actor_user_id: string }; Returns: Json }
       donor_mark_donation_mailed: {
         Args: {
           actor_user_id: string
           candidate_donation_id: string
           carrier_name: string
           tracking_value: string
-          verified_email: string
         }
         Returns: Json
       }
@@ -81,6 +109,10 @@ export type Database = {
           worker_id: string
         }
         Returns: boolean
+      }
+      get_donation_claim_material: {
+        Args: { candidate_public_id: string }
+        Returns: Json
       }
       get_donation_notification_payload: {
         Args: { candidate_donation_id: string }
@@ -116,9 +148,8 @@ export type Database = {
           actor_user_id: string
           campaign_name: string
           campaign_slug: string
+          candidate_charity_id: string
           candidate_organization_id: string
-          charity_name: string
-          charity_pledge_id: string
           content_hash_value: string
           cta_value: string
           headline_value: string
@@ -134,7 +165,7 @@ export type Database = {
           content_hash_value: string
           cta_value: string
           headline_value: string
-          hero_image_value: string
+          hero_asset_value: string
           story_value: string
           summary_value: string
         }
@@ -632,6 +663,27 @@ export type Database = {
           },
         ]
       }
+      anonymous_rate_limits: {
+        Row: {
+          action_name: string
+          bucket_hash: string
+          request_count: number
+          window_started_at: string
+        }
+        Insert: {
+          action_name: string
+          bucket_hash: string
+          request_count: number
+          window_started_at: string
+        }
+        Update: {
+          action_name?: string
+          bucket_hash?: string
+          request_count?: number
+          window_started_at?: string
+        }
+        Relationships: []
+      }
       audit_events: {
         Row: {
           action_name: string
@@ -674,6 +726,33 @@ export type Database = {
           reason_code?: string | null
           redacted_changes?: Json
           request_id?: string | null
+        }
+        Relationships: []
+      }
+      auth_login_attempts: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          destination: string
+          expires_at: string
+          pkce_storage: Json
+          state_hash: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          destination: string
+          expires_at: string
+          pkce_storage: Json
+          state_hash: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          destination?: string
+          expires_at?: string
+          pkce_storage?: Json
+          state_hash?: string
         }
         Relationships: []
       }
@@ -761,6 +840,7 @@ export type Database = {
           created_at: string
           cta_label: string
           headline: string
+          hero_asset_id: string | null
           hero_image_url: string | null
           id: string
           published_at: string | null
@@ -778,6 +858,7 @@ export type Database = {
           created_at?: string
           cta_label?: string
           headline: string
+          hero_asset_id?: string | null
           hero_image_url?: string | null
           id?: string
           published_at?: string | null
@@ -795,6 +876,7 @@ export type Database = {
           created_at?: string
           cta_label?: string
           headline?: string
+          hero_asset_id?: string | null
           hero_image_url?: string | null
           id?: string
           published_at?: string | null
@@ -811,6 +893,13 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_revisions_hero_asset_id_fkey"
+            columns: ["hero_asset_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_assets"
             referencedColumns: ["id"]
           },
         ]
@@ -865,6 +954,7 @@ export type Database = {
       campaigns: {
         Row: {
           active_revision_id: string | null
+          charity_id: string
           created_at: string
           created_by: string
           id: string
@@ -878,6 +968,7 @@ export type Database = {
         }
         Insert: {
           active_revision_id?: string | null
+          charity_id: string
           created_at?: string
           created_by: string
           id?: string
@@ -891,6 +982,7 @@ export type Database = {
         }
         Update: {
           active_revision_id?: string | null
+          charity_id?: string
           created_at?: string
           created_by?: string
           id?: string
@@ -911,6 +1003,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "campaigns_charity_id_fkey"
+            columns: ["charity_id"]
+            isOneToOne: false
+            referencedRelation: "charities"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "campaigns_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -918,6 +1017,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      charities: {
+        Row: {
+          canonical_name: string
+          created_at: string
+          ein: string | null
+          id: string
+          pledge_id: string
+          status: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          canonical_name: string
+          created_at?: string
+          ein?: string | null
+          id?: string
+          pledge_id: string
+          status?: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          canonical_name?: string
+          created_at?: string
+          ein?: string | null
+          id?: string
+          pledge_id?: string
+          status?: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: []
       }
       communication_messages: {
         Row: {
@@ -1020,6 +1152,68 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cost_allocation_applications: {
+        Row: {
+          applied_cents: number
+          calculation_snapshot: Json
+          cost_id: string
+          created_at: string
+          device_id: string
+          id: string
+          policy_rule_id: string
+          sale_result_id: string
+        }
+        Insert: {
+          applied_cents: number
+          calculation_snapshot: Json
+          cost_id: string
+          created_at?: string
+          device_id: string
+          id?: string
+          policy_rule_id: string
+          sale_result_id: string
+        }
+        Update: {
+          applied_cents?: number
+          calculation_snapshot?: Json
+          cost_id?: string
+          created_at?: string
+          device_id?: string
+          id?: string
+          policy_rule_id?: string
+          sale_result_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_allocation_applications_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_allocation_applications_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "donation_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_allocation_applications_policy_rule_id_fkey"
+            columns: ["policy_rule_id"]
+            isOneToOne: false
+            referencedRelation: "proceeds_policy_cost_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_allocation_applications_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "device_sale_results"
             referencedColumns: ["id"]
           },
         ]
@@ -1272,6 +1466,38 @@ export type Database = {
           payload?: Json
         }
         Relationships: []
+      }
+      donation_claim_capabilities: {
+        Row: {
+          claimed_by: string | null
+          consumed_at: string | null
+          created_at: string
+          donation_id: string
+          expires_at: string
+        }
+        Insert: {
+          claimed_by?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          donation_id: string
+          expires_at: string
+        }
+        Update: {
+          claimed_by?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          donation_id?: string
+          expires_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donation_claim_capabilities_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: true
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       donation_costs: {
         Row: {
@@ -1567,6 +1793,7 @@ export type Database = {
       donations: {
         Row: {
           campaign_id: string | null
+          claim_nonce: string
           client_submission_key: string
           completed_at: string | null
           created_at: string
@@ -1578,6 +1805,7 @@ export type Database = {
           public_id: string
           received_at: string | null
           received_by: string | null
+          request_hash: string
           selected_charity_ein: string | null
           selected_charity_metadata: Json
           selected_charity_name: string
@@ -1589,6 +1817,7 @@ export type Database = {
         }
         Insert: {
           campaign_id?: string | null
+          claim_nonce: string
           client_submission_key: string
           completed_at?: string | null
           created_at?: string
@@ -1600,6 +1829,7 @@ export type Database = {
           public_id: string
           received_at?: string | null
           received_by?: string | null
+          request_hash: string
           selected_charity_ein?: string | null
           selected_charity_metadata?: Json
           selected_charity_name: string
@@ -1611,6 +1841,7 @@ export type Database = {
         }
         Update: {
           campaign_id?: string | null
+          claim_nonce?: string
           client_submission_key?: string
           completed_at?: string | null
           created_at?: string
@@ -1622,6 +1853,7 @@ export type Database = {
           public_id?: string
           received_at?: string | null
           received_by?: string | null
+          request_hash?: string
           selected_charity_ein?: string | null
           selected_charity_metadata?: Json
           selected_charity_name?: string
@@ -1788,6 +2020,48 @@ export type Database = {
           version?: number
         }
         Relationships: []
+      }
+      organization_charities: {
+        Row: {
+          charity_id: string
+          created_at: string
+          organization_id: string
+          status: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          charity_id: string
+          created_at?: string
+          organization_id: string
+          status?: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          charity_id?: string
+          created_at?: string
+          organization_id?: string
+          status?: Database["app_private"]["Enums"]["charity_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_charities_charity_id_fkey"
+            columns: ["charity_id"]
+            isOneToOne: false
+            referencedRelation: "charities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_charities_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       organization_memberships: {
         Row: {
@@ -1967,6 +2241,7 @@ export type Database = {
           id: string
           policy_version_id: string | null
           reversal_of: string | null
+          sale_result_id: string | null
           share_basis_points: number | null
           status: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -1985,6 +2260,7 @@ export type Database = {
           id?: string
           policy_version_id?: string | null
           reversal_of?: string | null
+          sale_result_id?: string | null
           share_basis_points?: number | null
           status?: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -2003,6 +2279,7 @@ export type Database = {
           id?: string
           policy_version_id?: string | null
           reversal_of?: string | null
+          sale_result_id?: string | null
           share_basis_points?: number | null
           status?: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -2026,6 +2303,13 @@ export type Database = {
             columns: ["reversal_of"]
             isOneToOne: false
             referencedRelation: "proceeds_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proceeds_allocations_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "device_sale_results"
             referencedColumns: ["id"]
           },
         ]
@@ -2255,6 +2539,24 @@ export type Database = {
         }
         Relationships: []
       }
+      semantic_command_registry: {
+        Row: {
+          command_name: string
+          description: string
+          human_only: boolean
+        }
+        Insert: {
+          command_name: string
+          description: string
+          human_only: boolean
+        }
+        Update: {
+          command_name?: string
+          description?: string
+          human_only?: boolean
+        }
+        Relationships: []
+      }
       staff_memberships: {
         Row: {
           activated_at: string | null
@@ -2362,6 +2664,11 @@ export type Database = {
         | "paused"
         | "completed"
         | "archived"
+      charity_verification_status:
+        | "pending"
+        | "verified"
+        | "suspended"
+        | "retired"
       cost_allocation_method: "direct" | "pro_rata" | "fixed" | "capped"
       data_wipe_status:
         | "not_started"
@@ -2599,6 +2906,12 @@ export const Constants = {
         "paused",
         "completed",
         "archived",
+      ],
+      charity_verification_status: [
+        "pending",
+        "verified",
+        "suspended",
+        "retired",
       ],
       cost_allocation_method: ["direct", "pro_rata", "fixed", "capped"],
       data_wipe_status: [

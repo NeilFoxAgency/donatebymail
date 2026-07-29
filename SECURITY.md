@@ -49,8 +49,9 @@ audit history, service credentials, and outbound communication authority.
   dependency review, Supabase advisors, and a production build before release.
 - Changes to authentication, authorization, PII handling, uploads, agent tools,
   financial operations, or deployment require threat-model review.
-- The beta intentionally omits Turnstile for testability. Production cutover
-  must add server-verified Turnstile and rate limiting to anonymous write
+- The beta intentionally omits Turnstile for testability and accepts synthetic
+  data only; server-side rate limits protect donation and magic-link requests.
+  Production cutover must add server-verified Turnstile to anonymous write
   endpoints; a browser token alone is not accepted as proof.
 
 ## Field-level encryption decision

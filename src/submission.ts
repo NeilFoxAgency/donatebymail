@@ -36,6 +36,7 @@ export type DonorDetails = {
 };
 export type DonationSubmission = {
   id: string;
+  clientSubmissionKey: string;
   createdAt: string;
   donor: DonorDetails;
   shippingMethod: ShippingMethod;
@@ -58,6 +59,8 @@ export function validateDonationSubmission(
   if (
     typeof value.id !== "string" ||
     !value.id.startsWith("DBM-") ||
+    typeof value.clientSubmissionKey !== "string" ||
+    !UUID.test(value.clientSubmissionKey) ||
     typeof value.createdAt !== "string" ||
     Number.isNaN(Date.parse(value.createdAt)) ||
     !Array.isArray(value.devices) ||
@@ -152,6 +155,18 @@ export function buildAdministratorNotification(record: DonationSubmission) {
     record.devices.map(describeDevice).join("\n"),
     "",
     "This notification records a charity selection only. No money was sent through Pledge.",
+  ].join("\n");
+}
+
+export function buildBetaAdministratorNotification(record: DonationSubmission, staffUrl: string) {
+  return [
+    "New beta phone donation",
+    "",
+    `Donation ID: ${record.id}`,
+    `Selected charity: ${record.charity.name}`,
+    `Device count: ${record.devices.length}`,
+    "Status: submitted",
+    `Open the authenticated staff workspace: ${staffUrl}`,
   ].join("\n");
 }
 

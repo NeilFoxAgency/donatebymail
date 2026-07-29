@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { authenticatedApi, logout, sessionStatus } from "./AuthSession";
 
 type SearchItem = { id: string; publicId: string; status: string; donorName: string; donorEmail: string; charityName: string; deviceCount: number; createdAt: string };
 type Device = { id: string; donor_brand?: string; donor_model?: string; actual_brand?: string; actual_model?: string; receipt_status: string; inspection_status: string; processing_status: string; data_wipe_status: string; assessed_value_cents?: number };
@@ -6,7 +7,6 @@ type Detail = SearchItem & { receivedAt?: string; packageCondition?: string; don
 type Finance = { policyHolds: number; failedOutbox: number; openEscalations: number; allocations: Array<{ id: string; donationId: string; status: string; grossCents: number; eligibleCostCents: number; allocatedCents?: number; createdAt: string }>; disbursements: Array<{ id: string; preparationId: string; status: string; completedAt?: string }> };
 type StaffCampaign = { id: string; name: string; slug: string; status: string; organizationName: string; charityName: string; revisions: Array<{ id: string; version: number; status: string; headline: string; summary: string; contentHash: string }> };
 
-const tokenKey = "dbm-beta-staff-session";
 const nextStatuses: Record<string, string[]> = {
   submitted: ["in_transit", "received", "exception", "cancelled"],
   in_transit: ["received", "exception", "cancelled"],
@@ -15,15 +15,8 @@ const nextStatuses: Record<string, string[]> = {
   processing: ["completed", "exception"],
   exception: ["received", "inspecting", "processing", "cancelled"],
 };
-async function api(path: string, token: string, init?: RequestInit): Promise<any> {
-  const response = await fetch(path, { ...init, headers: { ...(init?.body ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...init?.headers } });
-  const body = await response.json() as any;
-  if (!response.ok) throw new Error(body.message || "The staff request failed.");
-  return body;
-}
-
 export function StaffPage() {
-  const [token, setToken] = useState(() => sessionStorage.getItem(tokenKey) || "");
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
@@ -32,30 +25,26 @@ export function StaffPage() {
   const [finance, setFinance] = useState<Finance | null>(null);
   const [campaigns, setCampaigns] = useState<StaffCampaign[]>([]);
   const load = useCallback(async (q = query) => {
-    if (!token) return;
-    const body = await api(`/api/staff/donations?q=${encodeURIComponent(q)}`, token);
+    if (!authenticated) return;
+    const body = await authenticatedApi(`/api/staff/donations?q=${encodeURIComponent(q)}`);
     setResults(body.donations);
-  }, [query, token]);
+  }, [query, authenticated]);
   const open = useCallback(async (id: string) => {
-    const body = await api(`/api/staff/donations/${id}`, token); setDetail(body.donation);
-  }, [token]);
+    const body = await authenticatedApi(`/api/staff/donations/${id}`); setDetail(body.donation);
+  }, []);
   const loadDashboards = useCallback(async () => {
-    if (!token) return;
+    if (!authenticated) return;
     const [financeBody, campaignBody] = await Promise.all([
-      api("/api/staff/finance", token), api("/api/staff/campaigns", token),
+      authenticatedApi("/api/staff/finance"), authenticatedApi("/api/staff/campaigns"),
     ]);
     setFinance(financeBody.finance); setCampaigns(campaignBody.campaigns.campaigns || []);
-  }, [token]);
-  useEffect(() => {
-    const hash = new URLSearchParams(location.hash.slice(1));
-    const incoming = hash.get("access_token");
-    if (incoming) { sessionStorage.setItem(tokenKey, incoming); setToken(incoming); history.replaceState({}, "", "/staff"); }
-  }, []);
-  useEffect(() => { if (token) api("/api/staff/session", token).then(() => Promise.all([load(""), loadDashboards()])).catch(() => { sessionStorage.removeItem(tokenKey); setToken(""); setMessage("Your session ended. Request a new sign-in link."); }); }, [token]);
+  }, [authenticated]);
+  useEffect(() => { sessionStatus("/api/staff/session").then(setAuthenticated).catch(() => setAuthenticated(false)); }, []);
+  useEffect(() => { if (authenticated) Promise.all([load(""), loadDashboards()]).catch(() => { setAuthenticated(false); setMessage("Your session ended. Request a new sign-in link."); }); }, [authenticated]);
   async function mutate(path: string, payload: unknown) {
     setMessage("");
     try {
-      await api(path, token, { method: "POST", body: JSON.stringify(payload) });
+      await authenticatedApi(path, { method: "POST", body: JSON.stringify(payload) });
       if (detail) await open(detail.id);
       await load();
       await loadDashboards();
@@ -64,8 +53,8 @@ export function StaffPage() {
       setMessage(error instanceof Error ? error.message : "The change could not be saved.");
     }
   }
-  if (!token) return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Authorized staff</p><h1>Staff sign in</h1><p>We’ll email a one-time secure link to an authorized beta staff address.</p><form onSubmit={async (event) => { event.preventDefault(); sessionStorage.setItem("dbm-beta-auth-destination", "/staff"); const response = await fetch("/api/staff/auth/magic-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const body = await response.json() as { message: string }; setMessage(body.message); }}><label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><button className="button primary">Email secure sign-in link</button></form>{message && <p role="status">{message}</p>}</section></main>;
-  return <main className="operations-main"><section className="operations-shell"><div className="staff-heading"><div><p className="kicker">Beta operations</p><h1>Donation management</h1></div><button className="button text" onClick={() => { sessionStorage.removeItem(tokenKey); setToken(""); }}>Sign out</button></div>
+  if (!authenticated) return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Authorized staff</p><h1>Staff sign in</h1><p>We’ll email a one-time secure link to an authorized beta staff address.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/staff/auth/magic-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const body = await response.json() as { message: string }; setMessage(body.message); }}><label>Email<input type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><button className="button primary">Email secure sign-in link</button></form>{message && <p role="status">{message}</p>}</section></main>;
+  return <main className="operations-main"><section className="operations-shell"><div className="staff-heading"><div><p className="kicker">Beta operations</p><h1>Donation management</h1></div><button className="button text" onClick={() => void logout().finally(() => setAuthenticated(false))}>Sign out</button></div>
     <form className="staff-search" onSubmit={(e) => { e.preventDefault(); void load(); }}><label>Search donations<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ID, donor, email, or charity" /></label><button className="button primary">Search</button></form>
     {message && <p role="status">{message}</p>}
     <div className="staff-layout"><aside><h2>Donations</h2>{results.map((item) => <button key={item.id} className="donation-result" onClick={() => void open(item.id)}><strong>{item.publicId}</strong><span>{item.donorName}</span><small>{item.status} · {item.deviceCount} device(s)</small></button>)}</aside>

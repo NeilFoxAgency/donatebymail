@@ -18,7 +18,7 @@ describe("donation tracking capabilities", () => {
     await expect(
       verifyTrackingToken(secret, id.replace(/1$/, "3"), nonce, token),
     ).resolves.toBe(false);
-    expect(trackingMessage(id, nonce)).toBe(`${id}.${nonce}`);
+    expect(trackingMessage(id, nonce)).toBe(`tracking:${id}.${nonce}`);
   });
 
   it("keeps the capability out of the request path", async () => {

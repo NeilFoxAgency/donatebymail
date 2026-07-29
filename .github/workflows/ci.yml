@@ -23,6 +23,7 @@ jobs:
       - run: npm run security:secrets
       - run: npm run typecheck
       - run: npm run build
+      - run: npx wrangler deploy --env beta --dry-run
 
   database:
     runs-on: ubuntu-latest

@@ -953,7 +953,8 @@ function DonationPage() {
     [draftSaved, setDraftSaved] = useState(false),
     [submitting, setSubmitting] = useState(false),
     [submitError, setSubmitError] = useState(""),
-    charityRef = useRef<HTMLDivElement>(null);
+    charityRef = useRef<HTMLDivElement>(null),
+    submissionAttempt = useRef<{ fingerprint: string; key: string; id: string; createdAt: string } | null>(null);
   useEffect(() => {
     const cleanup = () => document.body.removeAttribute("data-print-target");
     window.addEventListener("afterprint", cleanup);
@@ -1054,9 +1055,16 @@ function DonationPage() {
         requestAnimationFrame(() => charityRef.current?.focus());
         return;
       }
+      const intent = { donor, shippingMethod, devices, charity: selectedCharity,
+        campaignSlug: new URLSearchParams(window.location.search).get("campaign") || undefined };
+      const fingerprint = JSON.stringify(intent);
+      if (!submissionAttempt.current || submissionAttempt.current.fingerprint !== fingerprint)
+        submissionAttempt.current = { fingerprint, key: crypto.randomUUID(), id: donationId(), createdAt: new Date().toISOString() };
+      const attempt = submissionAttempt.current;
       const next: DonationSubmission = {
-        id: donationId(),
-        createdAt: new Date().toISOString(),
+        id: attempt.id,
+        clientSubmissionKey: attempt.key,
+        createdAt: attempt.createdAt,
         donor: {
           ...donor,
           marketingConsentAt: donor.marketingEmailConsent
@@ -1082,6 +1090,7 @@ function DonationPage() {
         setTrackingLink(response.trackingUrl || "");
         setNotificationPending(Boolean(response.notificationPending));
         setStep(4);
+        submissionAttempt.current = null;
         localStorage.removeItem("donate-by-mail-draft");
       } catch (error) {
         setSubmitError(
@@ -1716,14 +1725,6 @@ function PackingSlip({
 }
 function App() {
   const path = window.location.pathname.toLowerCase();
-  // Supabase may fall back to the configured site root after passwordless
-  // authentication. Preserve the URL fragment and let StaffPage consume it.
-  if (window.location.hash.includes("access_token=")) {
-    const destination = sessionStorage.getItem("dbm-beta-auth-destination");
-    if (destination === "/account") return <div className="page"><Header /><DonorAccountPage /><Footer /></div>;
-    if (destination === "/partner") return <div className="page"><Header /><PartnerPage /><Footer /></div>;
-    return <div className="page"><Header /><StaffPage /><Footer /></div>;
-  }
   if (path === "/track" || path === "/track/")
     return <div className="page"><Header /><TrackingPage /><Footer /></div>;
   if (path === "/staff" || path === "/staff/")

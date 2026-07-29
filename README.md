@@ -78,6 +78,7 @@ npx wrangler secret put SUPABASE_URL --env beta
 npx wrangler secret put SUPABASE_PUBLISHABLE_KEY --env beta
 npx wrangler secret put SUPABASE_SECRET_KEY --env beta
 npx wrangler secret put DONATION_TRACKING_SECRET --env beta
+npx wrangler secret put BFF_SESSION_SECRET --env beta
 npx wrangler secret put AGENT_API_KEY --env beta
 ```
 
@@ -89,12 +90,17 @@ npm run deploy:beta
 ```
 
 Beta intentionally does not use Turnstile so its workflows can be exercised by
-automated testing. Turnstile and server-side rate limiting are production
-cutover requirements for anonymous write endpoints.
+automated testing. It is synthetic-data-only and uses server-side rate limits
+for anonymous donation and magic-link requests. Turnstile remains a production
+cutover requirement for anonymous write endpoints.
 
 ## Security and privacy
 
-See `public/.well-known/security.txt` and the project documentation. Drafts are stored in the donor's browser. Final form data is validated by the Worker and emailed to the configured Donate by Mail administrator; it is not stored in a new database by this feature.
+See `public/.well-known/security.txt`, `SECURITY.md`, and the threat model. Gen2
+beta donations persist in private Supabase tables. Routine administrator email
+is redacted; authorized staff retrieve contact details from the authenticated
+workspace. Supabase sessions are exchanged by the Worker and kept out of
+browser-readable storage.
 
 ## Google Ad Grants readiness
 

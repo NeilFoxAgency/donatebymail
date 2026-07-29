@@ -3,10 +3,11 @@ import {
   evaluateActionPolicy,
   type ActionPolicyRule,
 } from "./actionPolicy";
+import type { SemanticCommand } from "./commandRegistry";
 
 const rule = (
   outcome: ActionPolicyRule["outcome"],
-  command = "send_message",
+  command: SemanticCommand = "send_message",
 ): ActionPolicyRule => ({
   id: `${command}-${outcome}`,
   policyVersion: 1,

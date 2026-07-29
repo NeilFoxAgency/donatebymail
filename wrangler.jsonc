@@ -57,6 +57,7 @@
           "SUPABASE_PUBLISHABLE_KEY",
           "SUPABASE_SECRET_KEY",
           "DONATION_TRACKING_SECRET",
+          "BFF_SESSION_SECRET",
           "AGENT_API_KEY",
         ],
       },

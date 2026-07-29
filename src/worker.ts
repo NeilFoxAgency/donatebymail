@@ -1,5 +1,6 @@
 import {
   buildAdministratorNotification,
+  buildBetaAdministratorNotification,
   buildDonorConfirmation,
   donorFullName,
   validateDonationSubmission,
@@ -7,10 +8,16 @@ import {
 } from "./submission";
 import type { SelectedCharity } from "./pledge";
 import {
+  claimUrl,
+  createClaimToken,
   createTrackingToken,
   trackingUrl,
   verifyTrackingToken,
+  verifyClaimToken,
 } from "./gen2/tracking";
+import { createClient } from "@supabase/supabase-js";
+import { clearSessionCookie, constantTimeEqual, cookieValue, openSession, sealSession, sessionCookie, type BffSession } from "./gen2/bffSession";
+import { isRiskLevel, isSemanticCommand, RISK_LEVELS } from "./gen2/commandRegistry";
 
 type BrevoRecipient = { email: string; name?: string };
 
@@ -22,6 +29,7 @@ type WorkerEnv = Env & {
   SUPABASE_SECRET_KEY?: string;
   DONATION_TRACKING_SECRET?: string;
   AGENT_API_KEY?: string;
+  BFF_SESSION_SECRET?: string;
 };
 
 type PersistedDonation = {
@@ -32,7 +40,7 @@ type PersistedDonation = {
   outboxEventId: string | null;
 };
 
-type TrackingMaterial = { donationId: string; trackingNonce: string };
+type TrackingMaterial = { donationId: string; trackingNonce: string; claimNonce?: string };
 type SupabaseUser = { id: string; email?: string };
 type NotificationPayload = {
   donationId: string;
@@ -40,6 +48,7 @@ type NotificationPayload = {
   status: string;
   createdAt: string;
   trackingNonce: string;
+  claimNonce: string;
   charityName: string;
   charityPledgeId: string;
   donor: DonationSubmission["donor"];
@@ -60,6 +69,17 @@ const JSON_HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
 };
+
+const requestSessions = new WeakMap<Request, BffSession>();
+const refreshedCookies = new WeakMap<Request, string>();
+
+class PkceStorage {
+  values: Record<string, string>;
+  constructor(values: Record<string, string> = {}) { this.values = { ...values }; }
+  getItem(key: string) { return Promise.resolve(this.values[key] ?? null); }
+  setItem(key: string, value: string) { this.values[key] = value; return Promise.resolve(); }
+  removeItem(key: string) { delete this.values[key]; return Promise.resolve(); }
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
@@ -110,20 +130,40 @@ async function supabaseRpc<T>(
 }
 
 async function authenticatedUser(request: Request, env: WorkerEnv): Promise<SupabaseUser | null> {
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.BFF_SESSION_SECRET)
     return null;
+  const sealed = cookieValue(request.headers.get("cookie"));
+  if (!sealed) return null;
+  let session = await openSession(sealed, env.BFF_SESSION_SECRET);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now() + 60_000) {
+    const refresh = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ refresh_token: session.refreshToken }),
+    });
+    if (!refresh.ok) return null;
+    const refreshed = await refresh.json() as { access_token: string; refresh_token: string; expires_in: number };
+    session = { ...session, accessToken: refreshed.access_token, refreshToken: refreshed.refresh_token, expiresAt: Date.now() + refreshed.expires_in * 1000 };
+    refreshedCookies.set(request, sessionCookie(await sealSession(session, env.BFF_SESSION_SECRET)));
+  }
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     headers: {
       apikey: env.SUPABASE_PUBLISHABLE_KEY,
-      authorization,
+      authorization: `Bearer ${session.accessToken}`,
       accept: "application/json",
     },
   });
   if (!response.ok) return null;
   const user = (await response.json()) as SupabaseUser;
   if (!user?.id) return null;
+  requestSessions.set(request, session);
   return user;
+}
+
+function csrfAllowed(request: Request): boolean {
+  const session = requestSessions.get(request);
+  return Boolean(session && sameOrigin(request) && constantTimeEqual(request.headers.get("x-csrf-token"), session.csrf));
 }
 
 async function supabaseUser(request: Request, env: WorkerEnv): Promise<SupabaseUser | null> {
@@ -146,6 +186,15 @@ async function safeSecretEqual(actual: string | null, expected?: string): Promis
   return a === b;
 }
 
+async function anonymousRateAllowed(request: Request, env: WorkerEnv, action: string, maximum: number, windowSeconds: number): Promise<boolean> {
+  if (!env.DONATION_TRACKING_SECRET) return false;
+  const address = request.headers.get("cf-connecting-ip") || "unknown";
+  const bucket = await sha256Hex(`rate:${env.DONATION_TRACKING_SECRET}:${action}:${address}`);
+  return supabaseRpc<boolean>(env, "consume_anonymous_rate_limit", {
+    bucket_hash_value: bucket, action_value: action, maximum_requests: maximum, window_seconds: windowSeconds,
+  });
+}
+
 async function readJson(request: Request, maximumBytes = 100_000): Promise<unknown> {
   if (!request.headers.get("content-type")?.includes("application/json"))
     throw new Error("Expected a JSON request.");
@@ -161,6 +210,12 @@ function sameOrigin(request: Request): boolean {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  return JSON.stringify(value);
 }
 
 function escapeHtml(value: string): string {
@@ -273,14 +328,16 @@ async function deliverDonationNotification(
   if (eventType === "donation.created") {
     const record: DonationSubmission = {
       id: payload.publicId,
+      clientSubmissionKey: "00000000-0000-4000-8000-000000000000",
       createdAt: payload.createdAt,
       donor: payload.donor,
       shippingMethod: "label",
       devices: payload.devices,
       charity: { pledgeId: payload.charityPledgeId, name: payload.charityName },
     };
-    const donorText = `${buildDonorConfirmation(record)}\n\nTrack this donation securely:\n${link}`;
-    const administratorText = `${buildAdministratorNotification(record)}\n\nOpen staff workspace:\n${origin}/staff`;
+    const claimToken = await createClaimToken(env.DONATION_TRACKING_SECRET, payload.donationId, payload.claimNonce);
+    const donorText = `${buildDonorConfirmation(record)}\n\nTrack this donation securely:\n${link}\n\nClaim it in your donor account (one-time link):\n${claimUrl(origin, payload.publicId, claimToken)}`;
+    const administratorText = buildBetaAdministratorNotification(record, `${origin}/staff`);
     await Promise.all([
       sendBrevoEmail(env, {
         to: [{ email: payload.donor.email, name: donorFullName(payload.donor) }],
@@ -424,6 +481,9 @@ async function handleDonationSubmission(
       400,
     );
   }
+  const submittedRequestHash = await sha256Hex(stableJson(payload));
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta" && !(await anonymousRateAllowed(request, env, "donation_submit", 10, 3600)))
+    return json({ ok: false, message: "Too many test submissions. Please try again later." }, 429);
   let record: DonationSubmission = payload;
   try {
     const verifiedCharity = await lookupOrganization(
@@ -438,30 +498,26 @@ async function handleDonationSubmission(
   if (env.DEPLOYMENT_ENVIRONMENT === "beta") {
     if (!betaDataConfigured(env))
       return json({ ok: false, message: "Beta donation storage is not configured." }, 503);
-    if (record.campaignSlug) {
-      const campaign = await supabaseRpc<{ charityPledgeId: string } | null>(env, "get_public_campaign", {
-        campaign_slug: record.campaignSlug,
-      });
-      if (!campaign || campaign.charityPledgeId !== record.charity.pledgeId)
-        return json({ ok: false, message: "This campaign requires its listed nonprofit selection." }, 400);
-    }
     const persisted = await supabaseRpc<PersistedDonation>(env, "create_donation", {
       payload: record,
-      tracking_nonce: crypto.randomUUID(),
+      tracking_nonce: crypto.randomUUID(), claim_nonce: crypto.randomUUID(),
+      request_hash_value: submittedRequestHash, campaign_slug: record.campaignSlug || null,
     });
-    if (record.campaignSlug) {
-      await supabaseRpc(env, "attach_campaign_to_donation", {
-        candidate_donation_id: persisted.donationId, campaign_slug: record.campaignSlug,
-      });
-    }
+    if (!persisted.created) return json({
+      ok: true, replayed: true, donationId: persisted.publicId,
+      createdAt: persisted.createdAt, charity: record.charity,
+      notificationPending: false,
+    }, 200);
+    const material = await supabaseRpc<TrackingMaterial>(env, "get_donation_tracking_material", {
+      candidate_public_id: persisted.publicId,
+    });
     const token = await createTrackingToken(
       env.DONATION_TRACKING_SECRET!,
       persisted.donationId,
-      (await supabaseRpc<TrackingMaterial>(env, "get_donation_tracking_material", {
-        candidate_public_id: persisted.publicId,
-      })).trackingNonce,
+      material.trackingNonce,
     );
     const link = trackingUrl(new URL(request.url).origin, persisted.publicId, token);
+    const claimToken = await createClaimToken(env.DONATION_TRACKING_SECRET!, persisted.donationId, material.claimNonce!);
     let notificationPending = !persisted.outboxEventId;
     if (persisted.outboxEventId) {
       try {
@@ -484,6 +540,7 @@ async function handleDonationSubmission(
       createdAt: persisted.createdAt,
       charity: record.charity,
       trackingUrl: link,
+      claimUrl: claimUrl(new URL(request.url).origin, persisted.publicId, claimToken),
       notificationPending,
     }, 201);
   }
@@ -547,21 +604,29 @@ async function requireStaff(request: Request, env: WorkerEnv): Promise<SupabaseU
   }
 }
 
-async function handleStaffMagicLink(request: Request, env: WorkerEnv): Promise<Response> {
+async function sendMagicLink(request: Request, env: WorkerEnv, destination: "/staff" | "/account" | "/partner", staffOnly = false): Promise<Response> {
   if (!sameOrigin(request)) return json({ ok: false, message: "Request not allowed." }, 403);
-  const generic = json({ ok: true, message: "If this address is authorized, a secure sign-in link is on its way." }, 202);
+  const generic = json({ ok: true, message: "If the address can sign in, a secure link is on its way." }, 202);
   try {
+    if (!(await anonymousRateAllowed(request, env, "auth_magic_link", 5, 900))) return generic;
     const body = (await readJson(request, 4_000)) as Record<string, unknown>;
     const email = stringValue(body.email)?.toLowerCase();
     if (!email || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) return generic;
-    const active = await supabaseRpc<boolean>(env, "is_active_staff_email", { candidate_email: email });
-    if (!active) return generic;
-    const authUrl = new URL(`${env.SUPABASE_URL}/auth/v1/otp`);
-    authUrl.searchParams.set("redirect_to", `${new URL(request.url).origin}/staff`);
-    await fetch(authUrl, {
-      method: "POST",
-      headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, "content-type": "application/json" },
-      body: JSON.stringify({ email, create_user: false }),
+    if (staffOnly && !(await supabaseRpc<boolean>(env, "is_active_staff_email", { candidate_email: email }))) return generic;
+    const state = crypto.randomUUID();
+    const storage = new PkceStorage();
+    const client = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, { auth: {
+      flowType: "pkce", storage, persistSession: true, autoRefreshToken: false, detectSessionInUrl: false,
+    }});
+    const callback = new URL("/api/auth/callback", new URL(request.url).origin);
+    callback.searchParams.set("state", state);
+    const { error } = await client.auth.signInWithOtp({ email, options: {
+      emailRedirectTo: callback.toString(), shouldCreateUser: !staffOnly,
+    }});
+    if (error) return generic;
+    await supabaseRpc(env, "create_auth_login_attempt", {
+      state_hash_value: await sha256Hex(state), destination_value: destination,
+      storage_value: storage.values, expires_at_value: new Date(Date.now() + 15 * 60_000).toISOString(),
     });
     return generic;
   } catch {
@@ -569,10 +634,65 @@ async function handleStaffMagicLink(request: Request, env: WorkerEnv): Promise<R
   }
 }
 
+async function handleAuthCallback(request: Request, env: WorkerEnv): Promise<Response> {
+  const url = new URL(request.url), state = url.searchParams.get("state"), code = url.searchParams.get("code");
+  if (!state || !code || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.BFF_SESSION_SECRET)
+    return Response.redirect(`${url.origin}/?auth=invalid`, 303);
+  const attempt = await supabaseRpc<{ destination: "/staff" | "/account" | "/partner"; storage: Record<string, string> } | null>(env, "consume_auth_login_attempt", {
+    state_hash_value: await sha256Hex(state),
+  });
+  if (!attempt) return Response.redirect(`${url.origin}/?auth=expired`, 303);
+  const storage = new PkceStorage(attempt.storage);
+  const client = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, { auth: {
+    flowType: "pkce", storage, persistSession: true, autoRefreshToken: false, detectSessionInUrl: false,
+  }});
+  const { data, error } = await client.auth.exchangeCodeForSession(code);
+  if (error || !data.session || !data.user) return Response.redirect(`${url.origin}${attempt.destination}?auth=invalid`, 303);
+  if (attempt.destination === "/staff" && !(await supabaseRpc<boolean>(env, "is_active_staff_user", { candidate_user_id: data.user.id }))) {
+    await client.auth.signOut();
+    return Response.redirect(`${url.origin}/staff?auth=denied`, 303);
+  }
+  const now = Date.now();
+  const session: BffSession = {
+    accessToken: data.session.access_token, refreshToken: data.session.refresh_token,
+    expiresAt: (data.session.expires_at || Math.floor(now / 1000) + 3600) * 1000,
+    absoluteExpiresAt: now + 7 * 24 * 60 * 60_000,
+    csrf: bytesToToken(32),
+  };
+  const headers = new Headers({ location: `${url.origin}${attempt.destination}`, "cache-control": "no-store" });
+  headers.append("set-cookie", sessionCookie(await sealSession(session, env.BFF_SESSION_SECRET)));
+  return new Response(null, { status: 303, headers });
+}
+
+function bytesToToken(size: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(size));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+async function handleLogout(request: Request, env: WorkerEnv): Promise<Response> {
+  const user = await authenticatedUser(request, env);
+  if (!user || !csrfAllowed(request)) return json({ ok: false, message: "Request not allowed." }, 403);
+  const session = requestSessions.get(request)!;
+  if (env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY) await fetch(`${env.SUPABASE_URL}/auth/v1/logout?scope=local`, {
+    method: "POST", headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, authorization: `Bearer ${session.accessToken}` },
+  });
+  refreshedCookies.delete(request);
+  const response = json({ ok: true });
+  response.headers.append("set-cookie", clearSessionCookie());
+  return response;
+}
+
+async function handleCsrf(request: Request, env: WorkerEnv): Promise<Response> {
+  const user = await authenticatedUser(request, env), session = requestSessions.get(request);
+  return user && session ? json({ ok: true, csrfToken: session.csrf }) : json({ ok: false, message: "Secure sign-in is required." }, 401);
+}
+
 async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promise<Response> {
   const staff = await requireStaff(request, env);
   if (staff instanceof Response) return staff;
-  if (request.method !== "GET" && !sameOrigin(request))
+  if (request.method !== "GET" && !csrfAllowed(request))
     return json({ ok: false, message: "Request not allowed." }, 403);
   if (request.method === "GET" && url.pathname === "/api/staff/session")
     return json({ ok: true, user: { id: staff.id } });
@@ -685,24 +805,6 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
   return json({ ok: true, result });
 }
 
-async function sendMagicLink(request: Request, env: WorkerEnv, destination: string): Promise<Response> {
-  if (!sameOrigin(request)) return json({ ok: false, message: "Request not allowed." }, 403);
-  const generic = json({ ok: true, message: "If the address can sign in, a secure link is on its way." }, 202);
-  try {
-    const body = (await readJson(request, 4_000)) as Record<string, unknown>;
-    const email = stringValue(body.email)?.toLowerCase();
-    if (!email || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) return generic;
-    const authUrl = new URL(`${env.SUPABASE_URL}/auth/v1/otp`);
-    authUrl.searchParams.set("redirect_to", `${new URL(request.url).origin}${destination}`);
-    await fetch(authUrl, {
-      method: "POST",
-      headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, "content-type": "application/json" },
-      body: JSON.stringify({ email, create_user: true }),
-    });
-    return generic;
-  } catch { return generic; }
-}
-
 async function requireAuthenticated(request: Request, env: WorkerEnv): Promise<SupabaseUser | Response> {
   const user = await authenticatedUser(request, env);
   return user ?? json({ ok: false, message: "Secure sign-in is required." }, 401);
@@ -712,20 +814,31 @@ async function handleAccountApi(request: Request, env: WorkerEnv, url: URL): Pro
   const user = await requireAuthenticated(request, env);
   if (user instanceof Response) return user;
   if (!user.email) return json({ ok: false, message: "A verified email is required." }, 403);
-  if (request.method !== "GET" && !sameOrigin(request)) return json({ ok: false, message: "Request not allowed." }, 403);
+  if (request.method !== "GET" && !csrfAllowed(request)) return json({ ok: false, message: "Request not allowed." }, 403);
   if (request.method === "GET" && url.pathname === "/api/account/session")
     return json({ ok: true, user: { id: user.id, email: user.email } });
   if (request.method === "GET" && url.pathname === "/api/account/donations") {
     const account = await supabaseRpc(env, "donor_account_overview", {
-      actor_user_id: user.id, verified_email: user.email,
+      actor_user_id: user.id,
     });
     return json({ ok: true, account });
+  }
+  if (request.method === "POST" && url.pathname === "/api/account/claims") {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    const publicId = stringValue(body.publicId), token = stringValue(body.claimToken);
+    if (!publicId || !token || !env.DONATION_TRACKING_SECRET) return json({ ok: false, message: "The claim reference is invalid." }, 400);
+    const material = await supabaseRpc<TrackingMaterial | null>(env, "get_donation_claim_material", { candidate_public_id: publicId });
+    if (!material?.claimNonce || !(await verifyClaimToken(env.DONATION_TRACKING_SECRET, material.donationId, material.claimNonce, token)))
+      return json({ ok: false, message: "The claim reference is invalid or expired." }, 404);
+    return json({ ok: true, result: await supabaseRpc(env, "claim_donation", {
+      actor_user_id: user.id, candidate_donation_id: material.donationId, verified_email: user.email,
+    }) });
   }
   const mailed = url.pathname.match(/^\/api\/account\/donations\/([0-9a-f-]{36})\/mailed$/i);
   if (request.method === "POST" && mailed) {
     const body = (await readJson(request, 8_000)) as Record<string, unknown>;
     const result = await supabaseRpc(env, "donor_mark_donation_mailed", {
-      actor_user_id: user.id, verified_email: user.email,
+      actor_user_id: user.id,
       candidate_donation_id: mailed[1], carrier_name: body.carrier || null,
       tracking_value: body.trackingNumber || null,
     });
@@ -737,7 +850,7 @@ async function handleAccountApi(request: Request, env: WorkerEnv, url: URL): Pro
 async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Promise<Response> {
   const user = await requireAuthenticated(request, env);
   if (user instanceof Response) return user;
-  if (request.method !== "GET" && !sameOrigin(request)) return json({ ok: false, message: "Request not allowed." }, 403);
+  if (request.method !== "GET" && !csrfAllowed(request)) return json({ ok: false, message: "Request not allowed." }, 403);
   if (request.method === "GET" && url.pathname === "/api/partner/session")
     return json({ ok: true, user: { id: user.id } });
   if (request.method === "GET" && url.pathname === "/api/partner/overview")
@@ -753,7 +866,7 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     const result = await supabaseRpc(env, "partner_create_campaign", {
       actor_user_id: user.id, candidate_organization_id: body.organizationId,
       campaign_slug: body.slug, campaign_name: body.name,
-      charity_pledge_id: body.charityPledgeId, charity_name: body.charityName,
+      candidate_charity_id: body.charityId,
       headline_value: body.headline, summary_value: body.summary, story_value: body.story,
       cta_value: body.ctaLabel || "Donate a Phone", content_hash_value: await sha256Hex(canonical),
     });
@@ -761,11 +874,11 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   }
   if (request.method === "POST" && campaign) {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
-    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroImageUrl: body.heroImageUrl });
+    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null });
     const result = await supabaseRpc(env, "partner_create_campaign_revision", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1], headline_value: body.headline,
       summary_value: body.summary, story_value: body.story, cta_value: body.ctaLabel || "Donate a Phone",
-      hero_image_value: body.heroImageUrl || null, content_hash_value: await sha256Hex(canonical),
+      hero_asset_value: body.heroAssetId || null, content_hash_value: await sha256Hex(canonical),
     });
     return json({ ok: true, result }, 201);
   }
@@ -778,14 +891,15 @@ async function handleAgentCommand(request: Request, env: WorkerEnv): Promise<Res
   if (request.method !== "POST") return json({ ok: false, message: "Method not allowed." }, 405);
   const body = (await readJson(request, 40_000)) as Record<string, unknown>;
   const command = stringValue(body.command);
+  const risk = stringValue(body.risk) || "moderate";
   const idempotencyKey = stringValue(body.idempotencyKey);
-  if (!command || !idempotencyKey) return json({ ok: false, message: "Command and idempotency key are required." }, 400);
+  if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ ok: false, message: "Canonical command, risk, and idempotency key are required." }, 400);
   const targetId = stringValue(body.targetId) || null;
   const inputHash = await sha256Hex(JSON.stringify({ command, targetId, payload: body.payload || {} }));
   const decision = await supabaseRpc(env, "evaluate_agent_command", {
     agent_identity: stringValue(body.agentIdentity) || "workspace-agent-beta",
     command_value: command, target_kind: stringValue(body.targetType) || "unknown",
-    target_value: targetId, risk_value: stringValue(body.risk) || "medium",
+    target_value: targetId, risk_value: risk,
     facts: body.facts || {}, input_hash_value: inputHash,
     correlation_value: stringValue(body.correlationId) || crypto.randomUUID(),
     idempotency_value: idempotencyKey,
@@ -814,21 +928,21 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
       required: ["command", "targetType", "risk", "idempotencyKey"], properties: {
         command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] },
         targetType: { type: "string" }, targetId: { type: "string", format: "uuid" },
-        risk: { type: "string", enum: ["low","medium","high","critical"] },
+        risk: { type: "string", enum: RISK_LEVELS },
         facts: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
         correlationId: { type: "string", format: "uuid" },
       } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }] } });
   if (rpc.method === "tools/call" && rpc.params?.name === "evaluate_semantic_command") {
     const args = rpc.params.arguments || {};
-    const command = stringValue(args.command), idempotencyKey = stringValue(args.idempotencyKey);
-    if (!command || !idempotencyKey) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid tool arguments" } });
+    const command = stringValue(args.command), idempotencyKey = stringValue(args.idempotencyKey), risk = stringValue(args.risk) || "moderate";
+    if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid tool arguments" } });
     const targetId = stringValue(args.targetId) || null;
     const inputHash = await sha256Hex(JSON.stringify({ command, targetId, facts: args.facts || {} }));
     const decision = await supabaseRpc(env, "evaluate_agent_command", {
       agent_identity: "workspace-agent-beta", command_value: command,
       target_kind: stringValue(args.targetType) || "unknown", target_value: targetId,
-      risk_value: stringValue(args.risk) || "medium", facts: args.facts || {},
+      risk_value: risk, facts: args.facts || {},
       input_hash_value: inputHash, correlation_value: stringValue(args.correlationId) || crypto.randomUUID(),
       idempotency_value: idempotencyKey,
     });
@@ -862,8 +976,7 @@ async function processOutbox(env: WorkerEnv): Promise<void> {
   }
 }
 
-export default {
-  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+async function routeRequest(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/donations") {
       return handleDonationSubmission(request, env);
@@ -871,11 +984,17 @@ export default {
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/donations/status")
       return handleTrackingStatus(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/staff/auth/magic-link")
-      return handleStaffMagicLink(request, env);
+      return sendMagicLink(request, env, "/staff", true);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/account/auth/magic-link")
       return sendMagicLink(request, env, "/account");
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/partner/auth/magic-link")
       return sendMagicLink(request, env, "/partner");
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && url.pathname === "/api/auth/callback")
+      return handleAuthCallback(request, env);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && url.pathname === "/api/auth/csrf")
+      return handleCsrf(request, env);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/auth/logout")
+      return handleLogout(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname.startsWith("/api/account/")) {
       try { return await handleAccountApi(request, env, url); }
       catch { return json({ ok: false, message: "The donor account request was rejected." }, 400); }
@@ -935,6 +1054,27 @@ export default {
       statusText: response.statusText,
       headers,
     });
+}
+
+function hardened(response: Response, request: Request, env: WorkerEnv): Response {
+  const headers = new Headers(response.headers);
+  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to; img-src 'self' data: https://images.pexels.com https://5e27aa4c670fcbb06b.v2.appdeploy.ai https://www.pledge.to; style-src 'self' 'unsafe-inline'; font-src 'self'; upgrade-insecure-requests");
+  headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-frame-options", "DENY");
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta") headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+  const path = new URL(request.url).pathname;
+  if (path.startsWith("/api/") || ["/staff", "/account", "/partner"].includes(path.replace(/\/$/, "")))
+    headers.set("cache-control", "no-store");
+  const refreshed = refreshedCookies.get(request);
+  if (refreshed) headers.append("set-cookie", refreshed);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+export default {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+    return hardened(await routeRequest(request, env), request, env);
   },
   async scheduled(_controller: ScheduledController, env: WorkerEnv): Promise<void> {
     if (env.DEPLOYMENT_ENVIRONMENT === "beta") await processOutbox(env);

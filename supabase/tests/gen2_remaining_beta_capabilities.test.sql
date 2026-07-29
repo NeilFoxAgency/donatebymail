@@ -38,10 +38,16 @@ insert into app_private.organization_memberships(organization_id,user_id,role,st
 values
 ('82000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000003','partner_admin','active',now()),
 ('82000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000004','partner_admin','active',now());
+insert into app_private.charities(id,pledge_id,canonical_name,status,verified_by,verified_at) values
+('82000000-0000-4000-8000-000000000011','3685b542-61d5-45da-9580-162dca725966','Charity A','verified','81000000-0000-4000-8000-000000000005',now()),
+('82000000-0000-4000-8000-000000000012','ec0b21fc-2671-431e-8a81-783b7a9626c9','Charity B','verified','81000000-0000-4000-8000-000000000005',now());
+insert into app_private.organization_charities(organization_id,charity_id,status,verified_by,verified_at) values
+('82000000-0000-4000-8000-000000000001','82000000-0000-4000-8000-000000000011','verified','81000000-0000-4000-8000-000000000005',now()),
+('82000000-0000-4000-8000-000000000002','82000000-0000-4000-8000-000000000012','verified','81000000-0000-4000-8000-000000000005',now());
 
 select lives_ok($$select api.partner_create_campaign(
   '81000000-0000-4000-8000-000000000003','82000000-0000-4000-8000-000000000001',
-  'give-phones-a','Give Phones A','3685b542-61d5-45da-9580-162dca725966','Charity A',
+  'give-phones-a','Give Phones A','82000000-0000-4000-8000-000000000011',
   'Give an old phone','A short campaign summary','A factual campaign story.','Donate a Phone',
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')$$,
   'Charity A admin can create an isolated draft campaign');
@@ -50,7 +56,7 @@ select throws_ok($$select api.partner_campaign_detail(
   '42501','active organization membership required','Charity B cannot read Charity A campaign');
 select throws_ok($$select api.partner_create_campaign(
   '81000000-0000-4000-8000-000000000003','82000000-0000-4000-8000-000000000001',
-  'admin','Collision','3685b542-61d5-45da-9580-162dca725966','Charity A','Headline','Summary','Story',
+  'admin','Collision','82000000-0000-4000-8000-000000000011','Headline','Summary','Story',
   'Donate a Phone','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')$$,
   '23514','campaign slug is reserved or invalid','reserved application routes cannot become campaigns');
 select is((api.get_public_campaign('give-phones-a') is null),true,'draft campaign is not public');
@@ -68,26 +74,26 @@ select is(api.resolve_campaign_alias('phones-for-a')->>'canonicalSlug','give-pho
   'vanity alias resolves to canonical campaign');
 
 create temporary table donor_created as select api.create_donation(
-  '{"id":"remaining-beta-alice","shippingMethod":"label","donor":{"firstName":"Alice","middleName":"","lastName":"Donor","email":"alice@example.com","address1":"1 Main St","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Charity A"},"devices":[{"id":"alice-phone","brand":"Apple","model":"iPhone","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb,
-  '83000000-0000-4000-8000-000000000001') result;
-select is(jsonb_array_length(api.donor_account_overview('81000000-0000-4000-8000-000000000001','alice@example.com')->'donations'),1,
-  'verified donor sees their matching donation');
-select is(jsonb_array_length(api.donor_account_overview('81000000-0000-4000-8000-000000000002','bob@example.com')->'donations'),0,
-  'Donor Bob cannot see Donor Alice donation');
-select throws_ok($$select api.donor_account_overview('81000000-0000-4000-8000-000000000002','alice@example.com')$$,
-  '42501','verified donor identity required','caller cannot substitute another donor email');
+  '{"id":"DBM-CLIENT-PREVIEW","clientSubmissionKey":"83000000-0000-4000-8000-000000000099","shippingMethod":"label","donor":{"firstName":"Alice","middleName":"","lastName":"Donor","email":"alice@example.com","address1":"1 Main St","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Charity A"},"devices":[{"id":"alice-phone","brand":"Apple","model":"iPhone","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb,
+  '83000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000002',repeat('a',64),null) result;
+select is(jsonb_array_length(api.donor_account_overview('81000000-0000-4000-8000-000000000001')->'donations'),0,
+  'GET overview never implicitly claims an email-matching donation');
+select lives_ok(format($$select api.claim_donation('81000000-0000-4000-8000-000000000001',%L::uuid,'alice@example.com')$$,
+  (select result->>'donationId' from donor_created)),'verified donor explicitly claims a donation-specific capability');
+select is(jsonb_array_length(api.donor_account_overview('81000000-0000-4000-8000-000000000001')->'donations'),1,
+  'explicitly claimed donation appears in the account');
 select lives_ok(format($$select api.donor_mark_donation_mailed(
-  '81000000-0000-4000-8000-000000000001','alice@example.com',%L::uuid,'USPS','940000000000')$$,
+  '81000000-0000-4000-8000-000000000001',%L::uuid,'USPS','940000000000')$$,
   (select result->>'donationId' from donor_created)),'donor can mark their own donation mailed');
 select is((select status::text from app_private.donations where id=(select (result->>'donationId')::uuid from donor_created)),
   'in_transit','marking mailed advances only to in transit');
-select is((api.donor_account_overview('81000000-0000-4000-8000-000000000001','alice@example.com')
+select is((api.donor_account_overview('81000000-0000-4000-8000-000000000001')
   ->'donations'->0->'shipment'->>'trackingLastFour'),'0000','donor overview redacts full tracking number');
 
 select is(api.evaluate_agent_command('agent-beta','record_physical_receipt','donation',
   (select (result->>'donationId')::uuid from donor_created),'low','{}',repeat('c',64),gen_random_uuid(),'agent-deny-001')->>'outcome',
   'DENY','agent physical receipt remains prohibited regardless of requested risk');
-select is(api.evaluate_agent_command('agent-beta','execute_sql','database',null,'low','{}',repeat('d',64),gen_random_uuid(),'agent-deny-002')->>'outcome',
+select is(api.evaluate_agent_command('agent-beta','arbitrary_database_query','database',null,'low','{}',repeat('d',64),gen_random_uuid(),'agent-deny-002')->>'outcome',
   'DENY','agent arbitrary SQL remains prohibited');
 select is(api.evaluate_agent_command('agent-beta','update_campaign_content','campaign',
   (select id from app_private.campaigns where slug='give-phones-a'),'low','{}',repeat('e',64),gen_random_uuid(),'agent-content-001')->>'outcome',
