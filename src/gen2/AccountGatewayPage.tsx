@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { logout } from "./AuthSession";
+import { authenticatedApi, logout, publicApi } from "./AuthSession";
 
 type AccountContext = {
   email?: string;
@@ -9,12 +9,10 @@ type AccountContext = {
 };
 
 async function requestMagicLink(path: string, email: string): Promise<string> {
-  const response = await fetch(path, {
+  const body = await publicApi<{ message?: string }>(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
     body: JSON.stringify({ email }),
   });
-  const body = await response.json() as { message?: string };
   return body.message || "If the address can sign in, a secure link is on its way.";
 }
 
@@ -22,8 +20,7 @@ export function AccountGatewayPage() {
   const [loading, setLoading] = useState(true);
   const [context, setContext] = useState<AccountContext | null>(null);
   useEffect(() => {
-    fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
-      .then((response) => response.json() as Promise<{ authenticated?: boolean; context?: AccountContext }>)
+    publicApi<{ authenticated?: boolean; context?: AccountContext }>("/api/auth/session")
       .then((body) => { setContext(body.authenticated ? body.context || {} : null); })
       .catch(() => setContext(null))
       .finally(() => setLoading(false));
@@ -79,6 +76,6 @@ export function AccountSettingsPage() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [message, setMessage] = useState("");
-  useEffect(() => { fetch("/api/account/profile", { credentials: "same-origin" }).then(async (response) => { if (!response.ok) throw new Error(); const body = await response.json() as { profile: { email: string; displayName?: string } }; setEmail(body.profile.email); setDisplayName(body.profile.displayName || ""); }).catch(() => setMessage("Sign in to view your account settings.")); }, []);
-  return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Account settings</p><h1>Your account</h1><p>Update your preferred display name. Donation address snapshots remain attached to the original donation and are not changed here.</p><form className="inline-ops" onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/account/profile", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName }) }); const body = await response.json() as { message?: string }; setMessage(body.message || (response.ok ? "Profile saved." : "The profile could not be saved.")); }}><label>Verified email<input value={email} readOnly /></label><label>Preferred name<input value={displayName} maxLength={120} onChange={(event) => setDisplayName(event.target.value)} /></label><button className="button primary">Save profile</button></form><button className="button text" onClick={() => void logout().then(() => window.location.replace("/login"))}>Log out</button>{message && <p role="status">{message}</p>}</section></main>;
+  useEffect(() => { authenticatedApi("/api/account/profile").then((body) => { setEmail(body.profile.email); setDisplayName(body.profile.displayName || ""); }).catch(() => setMessage("Sign in to view your account settings.")); }, []);
+  return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Account settings</p><h1>Your account</h1><p>Update your preferred display name. Donation address snapshots remain attached to the original donation and are not changed here.</p><form className="inline-ops" onSubmit={async (event) => { event.preventDefault(); try { const body = await authenticatedApi("/api/account/profile", { method: "POST", body: JSON.stringify({ displayName }) }); setMessage(body.message || "Profile saved."); } catch (error) { setMessage(error instanceof Error ? error.message : "The profile could not be saved."); } }}><label>Verified email<input value={email} readOnly /></label><label>Preferred name<input value={displayName} maxLength={120} onChange={(event) => setDisplayName(event.target.value)} /></label><button className="button primary">Save profile</button></form><button className="button text" onClick={() => void logout().then(() => window.location.replace("/login"))}>Log out</button>{message && <p role="status">{message}</p>}</section></main>;
 }

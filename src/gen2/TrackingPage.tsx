@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { publicApi } from "./AuthSession";
 
 type StatusData = {
   publicId: string;
@@ -18,14 +19,12 @@ export function TrackingPage() {
     const query = new URLSearchParams(window.location.search);
     const publicId = hash.get("id") || query.get("id") || "";
     const token = hash.get("token") || "";
-    if (window.location.hash) history.replaceState({}, "", publicId ? `/track?id=${encodeURIComponent(publicId)}` : "/track");
+    if (window.location.hash) window.history.replaceState({}, "", publicId ? `/track?id=${encodeURIComponent(publicId)}` : "/track");
     if (!publicId || !token) { setMessage("Open the secure tracking link from your donation email."); return; }
-    fetch("/api/donations/status", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ publicId, token }),
-    }).then(async (response) => {
-      const body = await response.json() as { donation?: StatusData; message?: string };
-      if (!response.ok || !body.donation) throw new Error(body.message || "Status unavailable.");
+    publicApi<{ donation?: StatusData }>("/api/donations/status", {
+      method: "POST", body: JSON.stringify({ publicId, token }),
+    }).then((body) => {
+      if (!body.donation) throw new Error("Status unavailable.");
       setDonation(body.donation); setMessage("");
     }).catch((error: Error) => setMessage(error.message));
   }, []);

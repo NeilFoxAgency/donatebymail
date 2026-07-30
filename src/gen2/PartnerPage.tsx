@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { authenticatedApi, authenticatedUpload, logout, sessionStatus } from "./AuthSession";
+import { authenticatedApi, authenticatedUpload, logout, publicApi, sessionStatus } from "./AuthSession";
 
 type Campaign = { id: string; slug: string; name: string; status: string; charityName: string };
 type VerifiedCharity = { id: string; name: string; pledgeId: string };
@@ -25,10 +25,10 @@ export function PartnerPage() {
     <p>Use an email address associated with your organization.</p>
     <form onSubmit={async (event) => {
       event.preventDefault();
-      const response = await fetch("/api/partner/auth/magic-link", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }),
-      });
-      setMessage(((await response.json()) as { message: string }).message);
+      try {
+        const body = await publicApi<{ message?: string }>("/api/partner/auth/magic-link", { method: "POST", body: JSON.stringify({ email }) });
+        setMessage(body.message || "If the address is authorized, a secure link is on its way.");
+      } catch (error) { setMessage(error instanceof Error ? error.message : "We could not request a secure link. Please try again."); }
     }}><label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
       <button className="button primary">Email secure sign-in link</button></form>
     {message && <p role="status">{message}</p>}

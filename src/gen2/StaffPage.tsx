@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { authenticatedApi, logout, sessionStatus } from "./AuthSession";
+import { authenticatedApi, logout, publicApi, sessionStatus } from "./AuthSession";
 
 type SearchItem = { id: string; publicId: string; status: string; donorName: string; donorEmail: string; charityName: string; deviceCount: number; createdAt: string };
 type Device = { id: string; donor_brand?: string; donor_model?: string; actual_brand?: string; actual_model?: string; receipt_status: string; inspection_status: string; processing_status: string; data_wipe_status: string; assessed_value_cents?: number };
@@ -29,6 +29,13 @@ export function StaffPage() {
   const [finance, setFinance] = useState<Finance | null>(null);
   const [campaigns, setCampaigns] = useState<StaffCampaign[]>([]);
   const [partners, setPartners] = useState<PartnerOrganization[]>([]);
+  useEffect(() => {
+    if (authenticated !== false) return;
+    // Chrome can restore a previously submitted staff address after hydration;
+    // clear that browser-only value so a staff member must deliberately enter it.
+    const frame = window.requestAnimationFrame(() => setEmail(""));
+    return () => window.cancelAnimationFrame(frame);
+  }, [authenticated]);
   const load = useCallback(async (q = query) => {
     if (!authenticated) return;
     const body = await authenticatedApi(`/api/staff/donations?q=${encodeURIComponent(q)}`);
@@ -62,7 +69,7 @@ export function StaffPage() {
       setMessage(error instanceof Error ? error.message : "The change could not be saved.");
     }
   }
-  if (!authenticated) return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Authorized staff</p><h1>Staff sign in</h1><p>We’ll email a one-time secure link to an authorized beta staff address.</p><form autoComplete="off" onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/staff/auth/magic-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }); const body = await response.json() as { message: string }; setMessage(body.message); }}><label>Email<input name="staff-login-address" type="email" inputMode="email" autoComplete="new-password" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><button className="button primary">Email secure sign-in link</button></form>{message && <p role="status">{message}</p>}</section></main>;
+  if (!authenticated) return <main className="operations-main"><section className="operations-shell compact"><p className="kicker">Authorized staff</p><h1>Staff sign in</h1><p>We’ll email a one-time secure link to an authorized beta staff address.</p><form autoComplete="off" onSubmit={async (event) => { event.preventDefault(); try { const body = await publicApi<{ message?: string }>("/api/staff/auth/magic-link", { method: "POST", body: JSON.stringify({ email }) }); setMessage(body.message || "If the address is authorized, a secure link is on its way."); } catch (error) { setMessage(error instanceof Error ? error.message : "We could not request a secure link. Please try again."); } }}><label>Email<input name="staff-login-email" type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><button className="button primary">Email secure sign-in link</button></form>{message && <p role="status">{message}</p>}</section></main>;
   return <main className="operations-main"><section className="operations-shell"><div className="staff-heading"><div><p className="kicker">Beta operations</p><h1>Donation management</h1></div><button className="button text" onClick={() => void logout().finally(() => setAuthenticated(false))}>Sign out</button></div>
     <form className="staff-search" onSubmit={(e) => { e.preventDefault(); void load(); }}><label>Search donations<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ID, donor, email, or charity" /></label><button className="button primary">Search</button></form>
     {message && <p role="status">{message}</p>}

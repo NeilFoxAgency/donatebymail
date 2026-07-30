@@ -185,6 +185,12 @@ for real donor data. Cloudflare Access is the required perimeter, with named
 human identities and a separate service-token policy for automation. The
 unauthenticated challenge, authorized one-time-PIN path, service-token path,
 logout, and production non-interference were verified on July 29, 2026.
+The passwordless PKCE callback is intentionally a separate, path-scoped
+Cloudflare Access application with a Bypass policy for
+`beta.donatebymail.org/api/auth/callback`; this does not bypass the Worker’s
+one-time state, Supabase code exchange, active-role checks, or encrypted
+session-cookie requirements. The broader beta hostname remains behind the
+named Access policy.
 Turnstile remains absent so authorized automation can test the flow. Anonymous
 donation and passwordless-email endpoints use server-side,
 privacy-preserving IP-bucket rate limits, generic authentication responses,
