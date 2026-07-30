@@ -24,6 +24,22 @@ let brevo: Server;
 let brevoCalls: Array<Record<string, unknown>> = [];
 let brevoUrl = "";
 
+async function rpc(name: string, body: Record<string, unknown>) {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: {
+      apikey: serviceKey,
+      authorization: `Bearer ${serviceKey}`,
+      "content-profile": "api",
+      "accept-profile": "api",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`${name} ${response.status}: ${await response.text()}`);
+  return await response.json() as Record<string, unknown>;
+}
+
 describe.skipIf(!integration)("actual Worker + local Supabase integration", () => {
   beforeAll(async () => {
     sql(`insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at)
@@ -91,5 +107,48 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
     await processOutbox(env);
     expect(brevoCalls.some((call) => JSON.stringify(call).includes("Donation status"))).toBe(true);
     expect(sql("select status from app_private.outbox_events where event_type='donation.status_changed' order by created_at desc limit 1")).toBe("completed");
+  });
+
+  it("runs a zero-proceeds donation through receipt, processing, finalization, and completion", async () => {
+    const payload = {
+      id: "DBM-INTEGRATION-ZERO",
+      createdAt: new Date().toISOString(),
+      clientSubmissionKey: crypto.randomUUID(),
+      shippingMethod: "label",
+      campaignSlug: "integration-campaign",
+      donor: { firstName: "Zero", middleName: "", lastName: "Proceeds", email: "integration-zero@example.test", address1: "2 Main", address2: "", city: "Kissimmee", state: "FL", zip: "34741", country: "US", marketingEmailConsent: false },
+      charity: { pledgeId, name: "Integration Charity" },
+      devices: [{ id: "zero-device-1", brand: "Apple", model: "Broken Phone", age: "6+ years", condition: "Broken", storage: "16 GB", powersOn: false, unlocked: true }],
+    };
+    const response = await worker.fetch(new Request("http://integration.test/api/donations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }), env);
+    if (response.status !== 201) throw new Error(`zero-proceeds submission ${response.status}: ${await response.text()}`);
+    const publicId = (await response.json() as { donationId: string }).donationId;
+    const donationId = sql(`select id from app_private.donations where public_id='${publicId}'`);
+    const deviceId = sql(`select id from app_private.donation_devices where donation_id='${donationId}'`);
+
+    await rpc("staff_record_receipt", {
+      actor_user_id: staffId,
+      candidate_donation_id: donationId,
+      receipt_time: new Date().toISOString(),
+      package_condition: "box intact",
+      device_receipts: [{ deviceId, received: true }],
+    });
+    await rpc("staff_update_device", {
+      actor_user_id: staffId,
+      candidate_donation_id: donationId,
+      candidate_device_id: deviceId,
+      patch: { inspectionStatus: "inspected", processingStatus: "recycle", dataWipeStatus: "not_required" },
+    });
+    await rpc("staff_change_donation_status", { actor_user_id: staffId, candidate_donation_id: donationId, new_status: "processing" });
+    await rpc("staff_change_donation_status", { actor_user_id: staffId, candidate_donation_id: donationId, new_status: "completed", public_message: "Your donation is complete." });
+    await rpc("staff_finalize_donation_financials", { actor_user_id: staffId, candidate_donation_id: donationId });
+
+    expect(sql(`select status::text||':'||settlement_status::text||':'||allocated_cents::text from app_private.proceeds_allocations where donation_id='${donationId}'`)).toBe("calculated:no_proceeds:0");
+    expect(sql(`select count(*) from app_private.disbursement_preparation_allocations pa join app_private.proceeds_allocations a on a.id=pa.allocation_id where a.donation_id='${donationId}'`)).toBe("0");
+    expect(sql(`select status::text from app_private.donations where id='${donationId}'`)).toBe("completed");
   });
 });
