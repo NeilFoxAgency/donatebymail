@@ -232,9 +232,16 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function sha256BytesHex(bytes: Uint8Array): Promise<string> {
+export async function sha256BytesHex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function hasValidCampaignImageSignature(mimeType: string, bytes: Uint8Array): boolean {
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/png") return bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index]);
+  if (mimeType === "image/webp") return bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP";
+  return false;
 }
 
 async function safeSecretEqual(actual: string | null, expected?: string): Promise<boolean> {
@@ -1132,9 +1139,7 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     const decorative = form.get("decorative") === "true";
     const assetKind = stringValue(form.get("assetKind")) || "hero_image";
     const bytes = fileValue instanceof File ? new Uint8Array(await fileValue.arrayBuffer()) : null;
-    const validSignature = bytes && ((fileValue as File).type === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-      || (fileValue as File).type === "image/png" && bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137,80,78,71,13,10,26,10][index])
-      || (fileValue as File).type === "image/webp" && bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP");
+    const validSignature = bytes ? hasValidCampaignImageSignature((fileValue as File).type, bytes) : false;
     if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || !["hero_image", "supporting_image"].includes(assetKind) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || (!decorative && !altText) || !validSignature || !bytes) {
       return json({ ok: false, message: "Upload a JPG, PNG, or WebP image under 5 MB with descriptive alt text." }, 400);
     }
