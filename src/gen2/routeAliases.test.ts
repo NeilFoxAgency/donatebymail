@@ -18,6 +18,9 @@ describe("campaign vanity aliases", () => {
       valid: false,
       reason: "reserved",
     });
+    for (const route of ["login", "account", "settings", "staff", "partner"]) {
+      expect(validateVanityAlias(route)).toMatchObject({ valid: false, reason: "reserved" });
+    }
   });
 
   it("rejects nested and unsafe path formats", () => {

@@ -18,6 +18,7 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import { clearSessionCookie, constantTimeEqual, cookieValue, openSession, sealSession, sessionCookie, type BffSession } from "./gen2/bffSession";
 import { isRiskLevel, isSemanticCommand, RISK_LEVELS } from "./gen2/commandRegistry";
+import { canonicalAuthorizationInput } from "./gen2/authorizationFingerprint";
 
 type BrevoRecipient = { email: string; name?: string };
 
@@ -381,6 +382,51 @@ async function completeInlineOutbox(env: WorkerEnv, eventId: string): Promise<vo
   });
 }
 
+async function deliverPartnerInvitation(
+  env: WorkerEnv,
+  eventId: string,
+  invitationId: string,
+  origin: string,
+): Promise<void> {
+  const payload = await supabaseRpc<{
+    invitationId: string;
+    email: string;
+    organizationName: string;
+    loginPath: string;
+  } | null>(env, "get_partner_invitation_email_payload", {
+    candidate_invitation_id: invitationId,
+  });
+  if (!payload) throw new Error("invitation_not_active");
+  const text = [
+    `You have been invited to manage ${payload.organizationName}'s Donate by Mail phone-drive workspace.`,
+    "",
+    "Sign in with the invited email address using a one-time secure link:",
+    `${origin}${payload.loginPath}?account=partner`,
+    "",
+    "If you were not expecting this invitation, you can ignore this message.",
+  ].join("\n");
+  await sendBrevoEmail(env, {
+    to: [{ email: payload.email }],
+    subject: `Donate by Mail partnership invitation for ${payload.organizationName}`,
+    textContent: text,
+    htmlContent: textEmailHtml(text),
+    tag: "partner-invitation",
+    idempotencyKey: `${eventId}-partner-invitation`,
+  });
+}
+
+async function dispatchOutboxEvent(env: WorkerEnv, event: OutboxEvent, origin: string): Promise<void> {
+  if (event.handler_key === "donation_notifications" && event.payload.donationId) {
+    await deliverDonationNotification(env, event.id, event.event_type, event.payload.donationId, origin);
+    return;
+  }
+  if (event.handler_key === "partner_invitation_email" && event.payload.invitationId) {
+    await deliverPartnerInvitation(env, event.id, event.payload.invitationId, origin);
+    return;
+  }
+  throw new Error("unsupported_handler");
+}
+
 function normalizeOrganization(
   value: Record<string, unknown>,
   pledgeId: string,
@@ -626,7 +672,10 @@ async function sendMagicLink(request: Request, env: WorkerEnv, destination: "/st
     const callback = new URL("/api/auth/callback", new URL(request.url).origin);
     callback.searchParams.set("state", state);
     const { error } = await client.auth.signInWithOtp({ email, options: {
-      emailRedirectTo: callback.toString(), shouldCreateUser: !staffOnly,
+      emailRedirectTo: callback.toString(),
+      // Donor accounts may be created from the public gateway. Partner and
+      // staff access must remain invitation/allowlist controlled.
+      shouldCreateUser: destination === "/account" && !staffOnly,
     }});
     if (error) return generic;
     await supabaseRpc(env, "create_auth_login_attempt", {
@@ -743,6 +792,21 @@ async function handleCsrf(request: Request, env: WorkerEnv): Promise<Response> {
   return user && session ? json({ ok: true, csrfToken: session.csrf }) : json({ ok: false, message: "Secure sign-in is required." }, 401);
 }
 
+async function handleAuthSessionContext(request: Request, env: WorkerEnv): Promise<Response> {
+  if (request.method !== "GET" || !sameOrigin(request))
+    return json({ ok: false, message: "Request not allowed." }, 403);
+  try {
+    const user = await authenticatedUser(request, env);
+    if (!user) return json({ ok: true, authenticated: false });
+    const context = await supabaseRpc<Record<string, unknown>>(env, "account_context", {
+      actor_user_id: user.id,
+    });
+    return json({ ok: true, authenticated: true, context });
+  } catch {
+    return json({ ok: true, authenticated: false });
+  }
+}
+
 async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promise<Response> {
   const staff = await requireStaff(request, env);
   if (staff instanceof Response) return staff;
@@ -843,11 +907,24 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
         candidate_charity_id: verified.charityId,
       }) });
     }
-    return json({ ok: true, result: await supabaseRpc(env,
+    const result = await supabaseRpc<Record<string, unknown>>(env,
       partnerOrgAction[2] === "invitations" ? "staff_invite_partner_admin" : "staff_set_partner_organization_status", {
         actor_user_id: staff.id, candidate_organization_id: partnerOrgAction[1],
         ...(partnerOrgAction[2] === "invitations" ? { email_value: body.email } : { status_value: body.status }),
-      }) });
+      });
+    const invitationOutbox = stringValue(result.outboxEventId);
+    const invitationId = stringValue(result.invitationId);
+    if (partnerOrgAction[2] === "invitations" && invitationOutbox && invitationId) {
+      try {
+        await deliverPartnerInvitation(env, invitationOutbox, invitationId, url.origin);
+        await supabaseRpc(env, "complete_inline_outbox_event", {
+          event_id: invitationOutbox, handler_name: "partner_invitation_email",
+        });
+      } catch {
+        // The transactional outbox remains pending/retryable if the provider is unavailable.
+      }
+    }
+    return json({ ok: true, result });
   }
   const partnerMember = url.pathname.match(/^\/api\/staff\/partners\/organizations\/([0-9a-f-]{36})\/members\/([0-9a-f-]{36})\/status$/i);
   if (request.method === "POST" && partnerMember) {
@@ -878,6 +955,12 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
       actor_user_id: staff.id, candidate_donation_id: donationId,
     });
     return donation ? json({ ok: true, donation }) : json({ ok: false, message: "Not found." }, 404);
+  }
+  if (request.method === "GET" && action === "financials") {
+    const financials = await supabaseRpc<Record<string, unknown> | null>(env, "staff_get_donation_financials", {
+      actor_user_id: staff.id, candidate_donation_id: donationId,
+    });
+    return financials ? json({ ok: true, financials }) : json({ ok: false, message: "Not found." }, 404);
   }
   let body: Record<string, unknown>;
   try { body = (await readJson(request, 30_000)) as Record<string, unknown>; }
@@ -933,6 +1016,14 @@ async function handleAccountApi(request: Request, env: WorkerEnv, url: URL): Pro
   if (request.method !== "GET" && !csrfAllowed(request)) return json({ ok: false, message: "Request not allowed." }, 403);
   if (request.method === "GET" && url.pathname === "/api/account/session")
     return json({ ok: true, user: { id: user.id, email: user.email } });
+  if (request.method === "GET" && url.pathname === "/api/account/profile")
+    return json({ ok: true, profile: await supabaseRpc(env, "account_profile", { actor_user_id: user.id }) });
+  if (request.method === "POST" && url.pathname === "/api/account/profile") {
+    const body = (await readJson(request, 4_000)) as Record<string, unknown>;
+    return json({ ok: true, profile: await supabaseRpc(env, "update_account_profile", {
+      actor_user_id: user.id, display_name_value: body.displayName || null,
+    }) });
+  }
   if (request.method === "GET" && url.pathname === "/api/account/donations") {
     const account = await supabaseRpc(env, "donor_account_overview", {
       actor_user_id: user.id,
@@ -1011,10 +1102,15 @@ async function handleAgentCommand(request: Request, env: WorkerEnv): Promise<Res
   const idempotencyKey = stringValue(body.idempotencyKey);
   if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ ok: false, message: "Canonical command, risk, and idempotency key are required." }, 400);
   const targetId = stringValue(body.targetId) || null;
-  const inputHash = await sha256Hex(JSON.stringify({ command, targetId, payload: body.payload || {} }));
+  const agentIdentity = stringValue(body.agentIdentity) || "workspace-agent-beta";
+  const targetType = stringValue(body.targetType) || "unknown";
+  const inputHash = await sha256Hex(canonicalAuthorizationInput({
+    agentIdentity, command, targetType, targetId, risk,
+    facts: body.facts || {}, payload: body.payload || {},
+  }));
   const decision = await supabaseRpc(env, "evaluate_agent_command", {
-    agent_identity: stringValue(body.agentIdentity) || "workspace-agent-beta",
-    command_value: command, target_kind: stringValue(body.targetType) || "unknown",
+    agent_identity: agentIdentity,
+    command_value: command, target_kind: targetType,
     target_value: targetId, risk_value: risk,
     facts: body.facts || {}, input_hash_value: inputHash,
     correlation_value: stringValue(body.correlationId) || crypto.randomUUID(),
@@ -1045,7 +1141,7 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
         command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] },
         targetType: { type: "string" }, targetId: { type: "string", format: "uuid" },
         risk: { type: "string", enum: RISK_LEVELS },
-        facts: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
         correlationId: { type: "string", format: "uuid" },
       } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }] } });
@@ -1054,10 +1150,15 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
     const command = stringValue(args.command), idempotencyKey = stringValue(args.idempotencyKey), risk = stringValue(args.risk) || "moderate";
     if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid tool arguments" } });
     const targetId = stringValue(args.targetId) || null;
-    const inputHash = await sha256Hex(JSON.stringify({ command, targetId, facts: args.facts || {} }));
+    const agentIdentity = "workspace-agent-beta";
+    const targetType = stringValue(args.targetType) || "unknown";
+    const inputHash = await sha256Hex(canonicalAuthorizationInput({
+      agentIdentity, command, targetType, targetId, risk,
+      facts: args.facts || {}, payload: args.payload || {},
+    }));
     const decision = await supabaseRpc(env, "evaluate_agent_command", {
-      agent_identity: "workspace-agent-beta", command_value: command,
-      target_kind: stringValue(args.targetType) || "unknown", target_value: targetId,
+      agent_identity: agentIdentity, command_value: command,
+      target_kind: targetType, target_value: targetId,
       risk_value: risk, facts: args.facts || {},
       input_hash_value: inputHash, correlation_value: stringValue(args.correlationId) || crypto.randomUUID(),
       idempotency_value: idempotencyKey,
@@ -1067,7 +1168,7 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
   return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
 }
 
-type OutboxEvent = { id: string; handler_key: string; event_type: string; payload: { donationId?: string } };
+type OutboxEvent = { id: string; handler_key: string; event_type: string; payload: { donationId?: string; invitationId?: string } };
 
 async function processOutbox(env: WorkerEnv): Promise<void> {
   if (!betaDataConfigured(env)) return;
@@ -1077,9 +1178,7 @@ async function processOutbox(env: WorkerEnv): Promise<void> {
   });
   for (const event of events) {
     try {
-      if (event.handler_key !== "donation_notifications" || !event.payload.donationId)
-        throw new Error("unsupported_handler");
-      await deliverDonationNotification(env, event.id, event.event_type, event.payload.donationId, "https://beta.donatebymail.org");
+      await dispatchOutboxEvent(env, event, "https://beta.donatebymail.org");
       await supabaseRpc(env, "complete_outbox_event", { event_id: event.id, worker_id: workerId });
     } catch (error) {
       await supabaseRpc(env, "fail_outbox_event", {
@@ -1111,6 +1210,8 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       return handleAuthCallback(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && url.pathname === "/api/auth/csrf")
       return handleCsrf(request, env);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && url.pathname === "/api/auth/session")
+      return handleAuthSessionContext(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/auth/logout")
       return handleLogout(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname.startsWith("/api/account/")) {

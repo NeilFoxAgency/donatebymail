@@ -133,6 +133,18 @@ verifies the public page, and audits the reply. Policy outcomes can mature from
 approval to automatic execution for measured low-risk work without enabling
 physical, financial, credential, role, SQL, or deployment commands.
 
+REST and MCP semantic-command requests share the same canonical, key-sorted
+authorization-input envelope. Its fingerprint includes agent identity,
+command, target type and ID, risk, normalized facts, and payload. The database
+binds an idempotency key to that fingerprint, so a retry with changed risk,
+facts, or target is rejected instead of reusing a prior low-risk decision.
+
+Partner invitation email is an identifier-only outbox event. The Worker
+resolves the recipient from the private invitation at delivery time and never
+places an address or privileged credential in the event payload. An uninvited
+partner magic-link request cannot create an Auth identity or organization
+membership; activation still requires a matching active invitation.
+
 ### Event delivery
 
 Retries can duplicate email or external effects, while an email outage can hide

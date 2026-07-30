@@ -21,6 +21,7 @@
     active = (h) => current === h.replace("/", ""),
     brand =
       '<a class="site-brand-logo" href="/" aria-label="Donate by Mail home"><img src="/resources/donate-by-mail-logo.png" alt="Donate by Mail"></a>',
+    accountLink = '<a class="account-nav-link" href="/login">Log in</a>',
     social = `<nav class="footer-social-links" aria-label="Donate by Mail social media"><a href="https://x.com/donatebymail" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a><a href="https://www.facebook.com/people/Donate-by-Mail/61551982935106/" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on Facebook"><svg viewBox="0 0 320 512" aria-hidden="true"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06H297V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"/></svg></a><a href="https://bsky.app/profile/donatebymail.bsky.social" target="_blank" rel="noopener noreferrer" aria-label="Donate by Mail on Bluesky"><img class="social-icon-bluesky" src="/resources/bluesky-white-icon.png" alt="" width="512" height="512" aria-hidden="true"></a></nav>`,
     nav = links
       .map(
@@ -29,6 +30,7 @@
       )
       .join("");
   let busy = false;
+  let accountResolved = false;
   const normalize = () => {
     if (busy) return;
     busy = true;
@@ -37,7 +39,7 @@
       if (h && !owned(h) && !h.dataset.sharedShell) {
         h.dataset.sharedShell = "true";
         h.className = "site-header";
-        h.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${nav}</nav><button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${nav}</nav>`;
+        h.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${nav}</nav>${accountLink}<button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${nav}${accountLink}</nav>`;
         const b = h.querySelector(".menu-button"),
           m = h.querySelector(".mobile-nav");
         b?.addEventListener("click", () => {
@@ -72,6 +74,14 @@
     }
   };
   normalize();
+  fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+    .then((response) => response.json())
+    .then((body) => {
+      if (accountResolved || !body?.authenticated) return;
+      accountResolved = true;
+      document.querySelectorAll(".account-nav-link").forEach((link) => { link.textContent = "My Account"; });
+    })
+    .catch(() => undefined);
   requestAnimationFrame(normalize);
   const observer = new MutationObserver(normalize);
   observer.observe(document.body, {

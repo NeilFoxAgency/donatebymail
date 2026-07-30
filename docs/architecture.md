@@ -52,6 +52,16 @@ Browser
 - The agent uses semantic commands evaluated by versioned policies. It never
   receives arbitrary SQL or database credentials.
 
+## Account routing
+
+`/login` is the single public account gateway and `/settings` is the shared
+profile surface. A server-derived context chooses donor, partner, and staff
+destinations; the browser never infers roles from local state. Donor identity
+creation is public but donation history remains claim-capability gated. Partner
+identity creation is disabled for the public gateway and activation requires a
+matching staff invitation. These routes, together with `/account`, `/partner`,
+and `/staff`, are permanently reserved from campaign vanity aliases.
+
 ## Policy foundations
 
 ### Proceeds
@@ -91,6 +101,9 @@ event producers.
 
 Outbox payloads contain identifiers and non-sensitive routing data, not donor
 PII. Handlers are idempotent and terminal failures are operator-visible.
+Partner invitation persistence commits before email delivery. The invitation
+outbox handler resolves the recipient address server-side and sends a normal
+passwordless-login link; a provider failure leaves the leased event retryable.
 
 ## Privacy posture
 

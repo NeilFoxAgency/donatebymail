@@ -124,6 +124,25 @@
   padding: 0.75rem 1rem;
   text-decoration: none;
 }
+.account-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--shell-navy);
+  color: var(--shell-navy);
+  text-decoration: none;
+  font-family: var(--shell-body);
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.account-nav-link:hover,
+.account-nav-link:focus-visible {
+  background: var(--shell-navy);
+  color: #fff;
+}
 .menu-button {
   display: none;
   width: 3.4rem;
@@ -247,6 +266,10 @@
   .mobile-nav a {
     padding: 0.85rem 0;
     border-bottom: 1px solid var(--shell-line);
+  }
+  .mobile-nav .account-nav-link {
+    margin-top: 0.75rem;
+    width: fit-content;
   }
   .mobile-nav .nav-primary {
     margin-bottom: 0.25rem;

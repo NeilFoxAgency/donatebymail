@@ -47,6 +47,7 @@ import { StaffPage } from "./gen2/StaffPage";
 import { DonorAccountPage } from "./gen2/DonorAccountPage";
 import { PartnerPage } from "./gen2/PartnerPage";
 import { CampaignPage } from "./gen2/CampaignPage";
+import { AccountGatewayPage, AccountSettingsPage } from "./gen2/AccountGatewayPage";
 type SubmissionResponse = {
   ok: boolean;
   message?: string;
@@ -299,6 +300,7 @@ function SiteLogo() {
 }
 function Header() {
   const [open, setOpen] = useState(false),
+    [signedIn, setSignedIn] = useState(false),
     links = [
       ["Donate a phone", "/donate-phone.html"],
       ["How it works", "/how-it-works.html"],
@@ -309,6 +311,12 @@ function Header() {
     ],
     current = window.location.pathname.split("/").pop() || "index.html",
     active = (h: string) => current === h.replace("/", "");
+  useEffect(() => {
+    fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+      .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
+      .then((body) => setSignedIn(Boolean(body.authenticated)))
+      .catch(() => setSignedIn(false));
+  }, []);
   return (
     <>
       <div className="charity-bar">
@@ -329,6 +337,7 @@ function Header() {
               </a>
             ))}
           </nav>
+          <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           <button
             className="menu-button"
             type="button"
@@ -351,6 +360,7 @@ function Header() {
                 {l}
               </a>
             ))}
+            <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           </nav>
         )}
       </header>
@@ -1721,6 +1731,10 @@ function App() {
     return <div className="page"><Header /><StaffPage /><Footer /></div>;
   if (path === "/account" || path === "/account/")
     return <div className="page"><Header /><DonorAccountPage /><Footer /></div>;
+  if (path === "/login" || path === "/login/")
+    return <div className="page"><Header /><AccountGatewayPage /><Footer /></div>;
+  if (path === "/settings" || path === "/settings/")
+    return <div className="page"><Header /><AccountSettingsPage /><Footer /></div>;
   if (path === "/partner" || path === "/partner/")
     return <div className="page"><Header /><PartnerPage /><Footer /></div>;
   const campaignMatch = path.match(/^\/c\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);

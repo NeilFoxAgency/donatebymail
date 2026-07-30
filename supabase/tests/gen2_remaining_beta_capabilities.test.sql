@@ -102,7 +102,8 @@ select is((select count(*)::bigint from app_private.action_decisions where actor
   'all agent decisions are recorded');
 
 update app_private.donation_devices set receipt_status='received',received_at=now(),inspection_status='inspected',
-  inspected_at=now(),inspected_by='81000000-0000-4000-8000-000000000005',processing_status='resale'
+  inspected_at=now(),inspected_by='81000000-0000-4000-8000-000000000005',processing_status='resale',
+  data_wipe_status='completed',wipe_verified_at=now(),wipe_verified_by='81000000-0000-4000-8000-000000000005'
 where donation_id=(select (result->>'donationId')::uuid from donor_created);
 select lives_ok(format($$select api.staff_record_sale_and_allocation(
   '81000000-0000-4000-8000-000000000005',%L::uuid,10000,'beta_test','sale-1',now())$$,

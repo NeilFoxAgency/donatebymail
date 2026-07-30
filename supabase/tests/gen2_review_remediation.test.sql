@@ -120,7 +120,8 @@ select throws_ok(format($$select api.staff_record_sale_and_allocation('91000000-
   (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),
   '22023','received, inspected, resale-eligible device required','sale before physical reconciliation is rejected');
 select lives_ok(format($$update app_private.donation_devices set receipt_status='received',received_at=now(),
-  inspection_status='inspected',inspected_at=now(),inspected_by='91000000-0000-4000-8000-000000000010',processing_status='resale'
+  inspection_status='inspected',inspected_at=now(),inspected_by='91000000-0000-4000-8000-000000000010',processing_status='resale',
+  data_wipe_status='completed',wipe_verified_at=now(),wipe_verified_by='91000000-0000-4000-8000-000000000010'
   where donation_id=%L::uuid$$,(select (result->>'donationId')::uuid from finance_donation)),'staff fixtures reconcile both expected devices');
 select lives_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10000,'test','sale-a',now())$$,
   (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),'first reconciled sale is recorded without allocating');

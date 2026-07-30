@@ -13,6 +13,9 @@ permissions:
 jobs:
   application:
     runs-on: ubuntu-latest
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -26,9 +29,6 @@ jobs:
       - run: npx wrangler deploy --env beta --dry-run
       - name: Access-protected beta smoke
         if: env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != ''
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: npm run smoke:beta
 
   database:
@@ -43,6 +43,7 @@ jobs:
       - run: npx supabase start
       - run: npm run db:reset
       - run: npx supabase db lint --local --schema app_private,api --level warning --fail-on warning
+      - run: npx supabase db advisors --local --type all --level warn --fail-on warn
       - run: npm run test:db
       - if: always()
         run: npm run db:stop
