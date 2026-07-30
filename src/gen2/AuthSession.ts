@@ -35,6 +35,22 @@ export async function authenticatedApi(path: string, init?: RequestInit) {
   return body;
 }
 
+export async function authenticatedUpload(path: string, form: FormData) {
+  const response = await fetch(path, {
+    method: "POST",
+    body: form,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "x-csrf-token": await csrf() },
+  });
+  const body = await response.json() as Record<string, any>;
+  if (!response.ok) {
+    if (response.status === 401) csrfToken = "";
+    throw new Error(body.message || "The secure upload failed.");
+  }
+  return body;
+}
+
 export async function logout(): Promise<void> {
   await authenticatedApi("/api/auth/logout", { method: "POST" });
   csrfToken = "";

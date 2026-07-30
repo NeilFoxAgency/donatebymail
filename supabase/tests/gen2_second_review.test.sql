@@ -31,7 +31,7 @@ select throws_ok($$select api.complete_pending_donation_claim('a1000000-0000-400
   '22023','pending claim expired or consumed','expired pending claim fails closed');
 select is(has_table_privilege('authenticated','app_private.pending_donation_claims','select'),false,'browser roles cannot read pending claims');
 select is((select count(*) from pg_constraint where conname='campaign_assets_deferred'
-  and conrelid='app_private.campaign_revisions'::regclass),1::bigint,'campaign asset references are disabled until the byte pipeline is complete');
+  and conrelid='app_private.campaign_revisions'::regclass),0::bigint,'published campaign revisions may reference only controlled assets');
 
 create temporary table org_fixture as select api.staff_create_partner_organization('a1000000-0000-4000-8000-000000000003','Review Partner','review-partner') result;
 select isnt((select result->>'organizationId' from org_fixture),null,'staff creates a partner organization');

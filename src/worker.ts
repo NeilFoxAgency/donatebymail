@@ -135,6 +135,52 @@ async function supabaseRpc<T>(
   return (await response.json()) as T;
 }
 
+const CAMPAIGN_ASSET_MAX_BYTES = 5 * 1024 * 1024;
+const CAMPAIGN_ASSET_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function storageObjectPath(path: string): string {
+  return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+}
+
+function supabaseSecretHeaders(env: WorkerEnv, extra: Record<string, string> = {}): Record<string, string> {
+  if (!env.SUPABASE_SECRET_KEY) throw new Error("Beta storage is not configured.");
+  const headers: Record<string, string> = { apikey: env.SUPABASE_SECRET_KEY, ...extra };
+  if (env.SUPABASE_SECRET_KEY.startsWith("eyJ")) headers.authorization = `Bearer ${env.SUPABASE_SECRET_KEY}`;
+  return headers;
+}
+
+async function uploadCampaignAsset(env: WorkerEnv, path: string, file: File): Promise<void> {
+  if (!env.SUPABASE_URL) throw new Error("Beta storage is not configured.");
+  const response = await fetch(`${env.SUPABASE_URL}/storage/v1/object/campaign-assets/${storageObjectPath(path)}`, {
+    method: "POST",
+    headers: supabaseSecretHeaders(env, {
+      "cache-control": "3600",
+      "content-type": file.type,
+      "x-upsert": "false",
+    }),
+    body: file,
+  });
+  if (!response.ok) {
+    console.error(JSON.stringify({ event: "campaign_asset_upload_failed", status: response.status }));
+    throw new Error("The campaign image could not be uploaded.");
+  }
+}
+
+async function deleteCampaignAssetObject(env: WorkerEnv, path: string): Promise<void> {
+  if (!env.SUPABASE_URL) return;
+  await fetch(`${env.SUPABASE_URL}/storage/v1/object/campaign-assets/${storageObjectPath(path)}`, {
+    method: "DELETE",
+    headers: supabaseSecretHeaders(env),
+  }).catch(() => undefined);
+}
+
+async function getCampaignAssetObject(env: WorkerEnv, path: string): Promise<Response> {
+  if (!env.SUPABASE_URL) throw new Error("Beta storage is not configured.");
+  return fetch(`${env.SUPABASE_URL}/storage/v1/object/campaign-assets/${storageObjectPath(path)}`, {
+    headers: supabaseSecretHeaders(env, { accept: "*/*" }),
+  });
+}
+
 async function authenticatedUser(request: Request, env: WorkerEnv): Promise<SupabaseUser | null> {
   if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.BFF_SESSION_SECRET)
     return null;
@@ -444,6 +490,10 @@ function normalizeOrganization(
     logoUrl: stringValue(value.logo_url) ?? stringValue(value.logo),
     websiteUrl: stringValue(value.website_url) ?? stringValue(value.website),
   };
+}
+
+function comparableCharityName(value: unknown): string {
+  return stringValue(value)?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || "";
 }
 
 async function lookupOrganization(
@@ -1067,6 +1117,36 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     return json({ ok: true, campaign: await supabaseRpc(env, "partner_campaign_detail", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1],
     }) });
+  const campaignAsset = url.pathname.match(/^\/api\/partner\/campaigns\/([0-9a-f-]{36})\/assets$/i);
+  if (request.method === "POST" && campaignAsset) {
+    const length = Number(request.headers.get("content-length") || 0);
+    if (length > CAMPAIGN_ASSET_MAX_BYTES + 16_000) return json({ ok: false, message: "The campaign image is too large. Use an image under 5 MB." }, 413);
+    const form = await request.formData();
+    const fileValue = form.get("file");
+    const altText = stringValue(form.get("altText"));
+    const assetKind = stringValue(form.get("assetKind")) || "hero_image";
+    if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || !altText) {
+      return json({ ok: false, message: "Upload a JPG, PNG, or WebP image under 5 MB with descriptive alt text." }, 400);
+    }
+    // Verify membership before writing a storage object. The detail RPC is
+    // intentionally used as the same authorization boundary as campaign edits.
+    await supabaseRpc(env, "partner_campaign_detail", { actor_user_id: user.id, candidate_campaign_id: campaignAsset[1] });
+    const extension = fileValue.type === "image/jpeg" ? "jpg" : fileValue.type === "image/png" ? "png" : "webp";
+    const storagePath = `campaigns/${campaignAsset[1]}/${crypto.randomUUID()}.${extension}`;
+    const asset = await supabaseRpc<{ id: string }>(env, "partner_create_campaign_asset", {
+      actor_user_id: user.id, candidate_campaign_id: campaignAsset[1], asset_kind_value: assetKind,
+      storage_path_value: storagePath, mime_type_value: fileValue.type, byte_size_value: fileValue.size,
+      alt_text_value: altText,
+    });
+    try {
+      await uploadCampaignAsset(env, storagePath, fileValue);
+    } catch (error) {
+      await supabaseRpc(env, "partner_delete_campaign_asset", { actor_user_id: user.id, candidate_asset_id: asset.id }).catch(() => undefined);
+      await deleteCampaignAssetObject(env, storagePath);
+      throw error;
+    }
+    return json({ ok: true, asset: { id: asset.id, assetKind, altText, previewUrl: `/api/campaign-assets/${asset.id}` } }, 201);
+  }
   if (request.method === "POST" && url.pathname === "/api/partner/campaigns") {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
     const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel });
@@ -1081,11 +1161,11 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   }
   if (request.method === "POST" && campaign) {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
-    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel });
+    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null });
     const result = await supabaseRpc(env, "partner_create_campaign_revision", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1], headline_value: body.headline,
       summary_value: body.summary, story_value: body.story, cta_value: body.ctaLabel || "Donate a Phone",
-      hero_asset_value: null, content_hash_value: await sha256Hex(canonical),
+      hero_asset_value: body.heroAssetId || null, content_hash_value: await sha256Hex(canonical),
     });
     return json({ ok: true, result }, 201);
   }
@@ -1233,7 +1313,32 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     const publicCampaign = url.pathname.match(/^\/api\/campaigns\/([a-z0-9-]+)$/);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && publicCampaign) {
       const campaign = await supabaseRpc<Record<string, unknown> | null>(env, "get_public_campaign", { campaign_slug: publicCampaign[1] });
-      return campaign ? json({ ok: true, campaign }) : json({ ok: false, message: "Campaign not found." }, 404);
+      if (!campaign) return json({ ok: false, message: "Campaign not found." }, 404);
+      // Enrich the public campaign response server-side. This keeps the
+      // Pledge credential and lookup behind the Worker and avoids making a
+      // second browser request that may be affected by beta access policy.
+      const pledgeId = stringValue(campaign.charityPledgeId);
+      const charity = pledgeId ? await lookupOrganization(pledgeId, env).catch(() => null) : null;
+      // Never attach a logo or external metadata to a different nonprofit
+      // than the verified campaign beneficiary. Staff must refresh the
+      // canonical Pledge association before a logo can appear.
+      const matchingCharity = charity && comparableCharityName(charity.name) === comparableCharityName(campaign.charityName)
+        ? charity
+        : null;
+      return json({ ok: true, campaign: matchingCharity ? { ...campaign, charity: matchingCharity } : campaign });
+    }
+    const publicCampaignAsset = url.pathname.match(/^\/api\/campaign-assets\/([0-9a-f-]{36})$/i);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && publicCampaignAsset) {
+      const asset = await supabaseRpc<{ id: string; storagePath: string; mimeType: string; altText: string } | null>(env, "get_public_campaign_asset", { candidate_asset_id: publicCampaignAsset[1] });
+      if (!asset) return json({ ok: false, message: "Campaign asset not found." }, 404);
+      const stored = await getCampaignAssetObject(env, asset.storagePath);
+      if (!stored.ok || !stored.body) return json({ ok: false, message: "Campaign asset unavailable." }, 404);
+      const headers = new Headers({
+        "cache-control": "public, max-age=300, stale-while-revalidate=3600",
+        "content-type": asset.mimeType,
+        "x-content-type-options": "nosniff",
+      });
+      return new Response(stored.body, { status: 200, headers });
     }
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname.startsWith("/api/staff/")) {
       try {
@@ -1277,7 +1382,7 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
 
 function hardened(response: Response, request: Request, env: WorkerEnv): Response {
   const headers = new Headers(response.headers);
-  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to; img-src 'self' data: https://images.pexels.com https://5e27aa4c670fcbb06b.v2.appdeploy.ai https://www.pledge.to; style-src 'self' 'unsafe-inline'; font-src 'self'; upgrade-insecure-requests");
+  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to; img-src 'self' data: https://images.pexels.com https://5e27aa4c670fcbb06b.v2.appdeploy.ai https://www.pledge.to https://res.cloudinary.com https://pledgeling-res.cloudinary.com; style-src 'self' 'unsafe-inline'; font-src 'self'; upgrade-insecure-requests");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
   headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   headers.set("x-content-type-options", "nosniff");

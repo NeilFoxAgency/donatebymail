@@ -3,10 +3,95 @@
 .inline-ops, .campaign-editor { display: grid; gap: .8rem; margin-top: 1.25rem; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
 .campaign-public { background: #f7f3ea; color: #14243a; min-height: 70vh; }
-.campaign-hero, .campaign-story { width: min(72rem, calc(100% - 2rem)); margin: 0 auto; }
-.campaign-hero { padding: clamp(3rem, 8vw, 7rem) 0; }
-.campaign-hero h1 { font-family: Georgia, serif; font-size: clamp(2.8rem, 7vw, 6.4rem); line-height: 1; max-width: 14ch; }
-.campaign-summary { font-size: clamp(1.2rem, 2.5vw, 1.65rem); max-width: 45rem; }
-.campaign-hero img { width: min(100%, 48rem); max-height: 28rem; object-fit: cover; margin-bottom: 2rem; }
-.campaign-story { margin-bottom: 5rem; max-width: 58rem; }
-.campaign-story aside { border-left: .4rem solid #bf2d3c; padding-left: 1.25rem; margin-top: 2rem; }
+.campaign-wrap { width: min(74rem, calc(100% - 2rem)); margin: 0 auto; }
+.campaign-loading { display: grid; min-height: 50vh; place-items: center; padding: 3rem 1rem; }
+.campaign-loading p { font-size: 1.1rem; }
+.campaign-hero { background: linear-gradient(115deg, #f7f3ea 0%, #f7f3ea 60%, #e8eef2 100%); padding: clamp(3.5rem, 8vw, 7rem) 0 clamp(3rem, 6vw, 5.5rem); }
+.campaign-hero-grid { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(19rem, .94fr); gap: clamp(2rem, 7vw, 6rem); align-items: center; }
+.campaign-eyebrow { margin: 0 0 .9rem; color: #a5263c; font-size: .77rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.campaign-hero h1 { margin: 0; max-width: 11ch; font-family: Georgia, serif; font-size: clamp(3rem, 7.2vw, 6.4rem); font-weight: 500; letter-spacing: -.045em; line-height: .96; }
+.campaign-summary { max-width: 38rem; margin: 1.5rem 0 0; color: #44546a; font-size: clamp(1.15rem, 2.2vw, 1.48rem); line-height: 1.55; }
+.campaign-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1.2rem; margin-top: 2rem; }
+.campaign-actions .button { display: inline-flex; align-items: center; gap: .55rem; }
+.campaign-text-link { display: inline-flex; align-items: center; gap: .35rem; color: #174f8c; font-weight: 800; text-decoration: none; }
+.campaign-text-link:hover, .campaign-charity-details a:hover { text-decoration: underline; }
+.campaign-text-link svg, .campaign-charity-details a svg { width: 1rem; height: 1rem; }
+.campaign-reassurance { display: flex; align-items: center; gap: .45rem; margin: 1.4rem 0 0; color: #536176; font-size: .92rem; }
+.campaign-reassurance svg { width: 1rem; height: 1rem; color: #174f8c; }
+.campaign-hero-visual { position: relative; min-height: 24rem; display: grid; place-items: center; }
+.campaign-hero-image { width: 100%; max-height: 29rem; border: 1px solid #c9c2b6; border-radius: 1.1rem; object-fit: cover; box-shadow: 1.2rem 1.2rem 0 rgba(23, 79, 140, .12); }
+.campaign-phone-mark { display: grid; width: min(100%, 24rem); aspect-ratio: 1 / 1.05; place-items: center; border: 1px solid #c9c2b6; border-radius: 1.1rem; background: radial-gradient(circle at 65% 28%, #f9fbff 0 13%, transparent 14%), linear-gradient(145deg, #dbe8f1, #b9cfe0); box-shadow: 1.2rem 1.2rem 0 rgba(23, 79, 140, .12); }
+.campaign-phone-mark svg { width: 8rem; height: 8rem; color: #174f8c; stroke-width: 1.1; }
+.campaign-support-card { position: absolute; right: -.8rem; bottom: -1.2rem; display: flex; align-items: center; gap: .8rem; width: min(20rem, 80%); padding: .9rem 1rem; border: 1px solid #c9c2b6; border-radius: .75rem; background: #fff; box-shadow: 0 .7rem 1.8rem rgba(20, 36, 58, .12); }
+.campaign-support-card > div { display: grid; gap: .15rem; min-width: 0; }
+.campaign-support-card span, .campaign-support-card small { color: #64748b; font-size: .78rem; }
+.campaign-support-card strong { overflow: hidden; color: #14243a; font-size: .96rem; text-overflow: ellipsis; white-space: nowrap; }
+.campaign-charity-logo { flex: 0 0 auto; width: 3.1rem; height: 3.1rem; border: 1px solid #d5dce3; border-radius: .65rem; background: #fff; object-fit: contain; }
+.campaign-charity-logo-large { width: 5.2rem; height: 5.2rem; border-radius: .85rem; }
+.campaign-charity-initials { display: grid; place-items: center; background: #174f8c; color: #fff; font-size: .82rem; font-weight: 800; letter-spacing: .04em; }
+.campaign-trust { border-top: 1px solid #d7d0c5; border-bottom: 1px solid #d7d0c5; background: #fff; }
+.campaign-trust-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 1.15rem 0; }
+.campaign-trust-grid span { display: flex; align-items: center; gap: .55rem; color: #44546a; font-size: .9rem; line-height: 1.35; }
+.campaign-trust-grid svg { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; color: #174f8c; }
+.campaign-section { padding: clamp(4rem, 8vw, 7rem) 0; }
+.campaign-story-section { background: #fff; }
+.campaign-story-grid, .campaign-after-grid, .campaign-faq-grid { display: grid; grid-template-columns: minmax(14rem, .8fr) minmax(0, 1.2fr); gap: clamp(2rem, 8vw, 8rem); }
+.campaign-section h2, .campaign-final-cta h2 { margin: 0; color: #14243a; font-family: Georgia, serif; font-size: clamp(2.3rem, 4.4vw, 4.3rem); font-weight: 500; letter-spacing: -.04em; line-height: 1.02; }
+.campaign-story-copy { max-width: 40rem; color: #44546a; font-size: 1.1rem; line-height: 1.75; }
+.campaign-story-copy p { margin: 0 0 1.25rem; }
+.campaign-process-section { background: #e9f0f5; }
+.campaign-section-heading { max-width: 43rem; }
+.campaign-section-heading > p:last-child { max-width: 35rem; margin: 1.25rem 0 0; color: #536176; font-size: 1.06rem; line-height: 1.6; }
+.campaign-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 3rem; }
+.campaign-steps article { position: relative; min-height: 14rem; padding: 1.5rem; border-top: 4px solid #174f8c; background: #fff; }
+.campaign-steps article:nth-child(2) { border-color: #bf2d3c; }
+.campaign-steps article:nth-child(3) { border-color: #536176; }
+.campaign-steps article > span { display: block; color: #a5263c; font-size: .76rem; font-weight: 800; letter-spacing: .12em; }
+.campaign-steps article > svg { width: 1.65rem; height: 1.65rem; margin: 1rem 0 .7rem; color: #174f8c; }
+.campaign-steps h3 { margin: 0; color: #14243a; font-size: 1.12rem; }
+.campaign-steps p { margin: .65rem 0 0; color: #536176; line-height: 1.55; }
+.campaign-after-section { background: #f7f3ea; }
+.campaign-after-grid > div:last-child { max-width: 41rem; color: #44546a; font-size: 1.08rem; line-height: 1.7; }
+.campaign-after-grid p { margin-top: 0; }
+.campaign-note { padding: 1rem 1.15rem; border-left: 4px solid #bf2d3c; background: #fff; color: #536176; font-size: .94rem; line-height: 1.55; }
+.campaign-charity-section { padding-top: 0; background: #f7f3ea; }
+.campaign-charity-panel { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(17rem, .9fr); gap: 2rem; padding: clamp(1.4rem, 4vw, 3rem); border: 1px solid #c9c2b6; background: #fff; }
+.campaign-charity-heading { display: flex; align-items: center; gap: 1.2rem; }
+.campaign-charity-heading h2 { font-size: clamp(2rem, 4vw, 3.5rem); }
+.campaign-charity-heading p:last-child { margin: .6rem 0 0; color: #64748b; }
+.campaign-charity-details { align-self: center; color: #536176; line-height: 1.6; }
+.campaign-charity-details p { margin: 0 0 .7rem; }
+.campaign-charity-details a { display: inline-flex; align-items: center; gap: .35rem; color: #174f8c; font-weight: 800; text-decoration: none; }
+.campaign-charity-details small { display: block; margin-top: 1.2rem; color: #7a8797; }
+.campaign-faq-section { background: #fff; }
+.campaign-faq-grid > div:last-child { max-width: 42rem; }
+.campaign-faqs details { padding: 1.05rem 0; border-bottom: 1px solid #d7d0c5; }
+.campaign-faqs details:first-child { border-top: 1px solid #d7d0c5; }
+.campaign-faqs summary { cursor: pointer; color: #14243a; font-size: 1.08rem; font-weight: 800; }
+.campaign-faqs p { max-width: 38rem; margin: .75rem 0 0; color: #536176; line-height: 1.6; }
+.campaign-final-cta { padding: clamp(4rem, 8vw, 6rem) 0; background: #162a44; color: #fff; text-align: center; }
+.campaign-final-cta .campaign-eyebrow { color: #f0a4af; }
+.campaign-final-cta h2 { max-width: 14ch; margin-inline: auto; color: #fff; }
+.campaign-final-cta p:not(.campaign-eyebrow) { max-width: 38rem; margin: 1.2rem auto 0; color: #dce4ee; font-size: 1.08rem; line-height: 1.6; }
+.campaign-final-cta .button { display: inline-flex; align-items: center; gap: .55rem; margin-top: 1.7rem; }
+@media (max-width: 800px) {
+  .campaign-hero-grid, .campaign-story-grid, .campaign-after-grid, .campaign-faq-grid, .campaign-charity-panel { grid-template-columns: 1fr; }
+  .campaign-hero-copy { order: 1; }
+  .campaign-hero-visual { order: 0; min-height: 19rem; }
+  .campaign-hero h1 { max-width: 14ch; }
+  .campaign-support-card { right: 0; }
+  .campaign-trust-grid, .campaign-steps { grid-template-columns: 1fr; }
+  .campaign-trust-grid { gap: .75rem; }
+  .campaign-steps article { min-height: auto; }
+}
+@media (max-width: 480px) {
+  .campaign-actions { align-items: stretch; flex-direction: column; }
+  .campaign-actions .button { justify-content: center; }
+  .campaign-hero-visual { min-height: 16rem; }
+  .campaign-phone-mark { width: 72%; }
+  .campaign-phone-mark svg { width: 5.5rem; height: 5.5rem; }
+  .campaign-support-card { bottom: -.8rem; width: calc(100% - 1rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .campaign-public *, .campaign-public *::before, .campaign-public *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
