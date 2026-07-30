@@ -25,6 +25,8 @@ import {
   type PledgeEnvironment,
   type SelectedCharity,
 } from "./pledge";
+import { resolveSubmissionAttempt, submissionIntentFingerprint, type SubmissionAttempt } from "./gen2/submissionAttempt";
+import { parseDonationDraft, serializeDonationDraft } from "./gen2/donationDraft";
 import {
   charityLocation,
   describeDevice,
@@ -954,7 +956,7 @@ function DonationPage() {
     [submitting, setSubmitting] = useState(false),
     [submitError, setSubmitError] = useState(""),
     charityRef = useRef<HTMLDivElement>(null),
-    submissionAttempt = useRef<{ fingerprint: string; key: string; id: string; createdAt: string } | null>(null);
+    submissionAttempt = useRef<SubmissionAttempt | null>(null);
   useEffect(() => {
     const cleanup = () => document.body.removeAttribute("data-print-target");
     window.addEventListener("afterprint", cleanup);
@@ -1012,10 +1014,8 @@ function DonationPage() {
     saveDraft = () => {
       localStorage.setItem(
         "donate-by-mail-draft",
-        JSON.stringify({
+        serializeDonationDraft({
           devices,
-          donor,
-          shippingMethod,
           selectedCharity,
           step,
         }),
@@ -1027,18 +1027,8 @@ function DonationPage() {
       const saved = localStorage.getItem("donate-by-mail-draft");
       if (!saved) return;
       try {
-        const d = JSON.parse(saved);
+        const d = parseDonationDraft<Device, SelectedCharity>(saved);
         if (d.devices?.length) setDevices(d.devices);
-        if (d.donor) {
-          const restored = { ...blankDonor, ...d.donor } as DonorDetails;
-          if (d.donor.name && !d.donor.firstName) {
-            const parts = String(d.donor.name).trim().split(/\s+/);
-            restored.firstName = parts.shift() || "";
-            restored.lastName = parts.pop() || "";
-            restored.middleName = parts.join(" ");
-          }
-          setDonor(restored);
-        }
         if (d.selectedCharity) setSelectedCharity(d.selectedCharity);
         if (d.step) setStep(Math.min(3, Math.max(1, d.step)));
       } catch {
@@ -1057,9 +1047,11 @@ function DonationPage() {
       }
       const intent = { donor, shippingMethod, devices, charity: selectedCharity,
         campaignSlug: new URLSearchParams(window.location.search).get("campaign") || undefined };
-      const fingerprint = JSON.stringify(intent);
-      if (!submissionAttempt.current || submissionAttempt.current.fingerprint !== fingerprint)
-        submissionAttempt.current = { fingerprint, key: crypto.randomUUID(), id: donationId(), createdAt: new Date().toISOString() };
+      const fingerprint = submissionIntentFingerprint(intent);
+      submissionAttempt.current = resolveSubmissionAttempt(
+        submissionAttempt.current, fingerprint, donor.marketingEmailConsent,
+        () => crypto.randomUUID(), donationId, () => new Date().toISOString(),
+      );
       const attempt = submissionAttempt.current;
       const next: DonationSubmission = {
         id: attempt.id,
@@ -1067,9 +1059,7 @@ function DonationPage() {
         createdAt: attempt.createdAt,
         donor: {
           ...donor,
-          marketingConsentAt: donor.marketingEmailConsent
-            ? new Date().toISOString()
-            : undefined,
+          marketingConsentAt: attempt.marketingConsentAt,
         },
         shippingMethod,
         devices: devices.map((d) => ({ ...d })),
@@ -1465,7 +1455,7 @@ function DonationPage() {
                 </label>
                 <div className="draft-actions">
                   <button type="button" onClick={saveDraft}>
-                    {draftSaved ? "Draft saved" : "Save draft in this browser"}
+                    {draftSaved ? "Draft saved" : "Save device and charity progress"}
                   </button>
                   <button type="button" onClick={loadDraft}>
                     Restore saved draft

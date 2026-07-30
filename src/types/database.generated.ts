@@ -15,6 +15,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_partner_invitations: {
+        Args: { actor_user_id: string; verified_email: string }
+        Returns: number
+      }
       claim_donation: {
         Args: {
           actor_user_id: string
@@ -44,6 +48,14 @@ export type Database = {
         Args: { event_id: string; worker_id: string }
         Returns: boolean
       }
+      complete_pending_donation_claim: {
+        Args: {
+          actor_user_id: string
+          pending_claim_value: string
+          verified_email: string
+        }
+        Returns: Json
+      }
       consume_anonymous_rate_limit: {
         Args: {
           action_value: string
@@ -61,6 +73,7 @@ export type Database = {
         Args: {
           destination_value: string
           expires_at_value: string
+          pending_claim_value?: string
           state_hash_value: string
           storage_value: Json
         }
@@ -75,6 +88,10 @@ export type Database = {
           tracking_nonce: string
         }
         Returns: Json
+      }
+      create_pending_donation_claim: {
+        Args: { candidate_donation_id: string }
+        Returns: string
       }
       donor_account_overview: { Args: { actor_user_id: string }; Returns: Json }
       donor_mark_donation_mailed: {
@@ -193,6 +210,14 @@ export type Database = {
         }
         Returns: Json
       }
+      staff_associate_partner_charity: {
+        Args: {
+          actor_user_id: string
+          candidate_charity_id: string
+          candidate_organization_id: string
+        }
+        Returns: Json
+      }
       staff_campaign_overview: {
         Args: { actor_user_id: string }
         Returns: Json
@@ -206,6 +231,10 @@ export type Database = {
         }
         Returns: Json
       }
+      staff_create_partner_organization: {
+        Args: { actor_user_id: string; name_value: string; slug_value: string }
+        Returns: Json
+      }
       staff_decide_disbursement: {
         Args: {
           actor_user_id: string
@@ -213,6 +242,10 @@ export type Database = {
           decision_value: Database["app_private"]["Enums"]["approval_outcome"]
           reason_value: string
         }
+        Returns: Json
+      }
+      staff_finalize_donation_financials: {
+        Args: { actor_user_id: string; candidate_donation_id: string }
         Returns: Json
       }
       staff_financial_overview: {
@@ -223,13 +256,22 @@ export type Database = {
         Args: { actor_user_id: string; candidate_donation_id: string }
         Returns: Json
       }
+      staff_invite_partner_admin: {
+        Args: {
+          actor_user_id: string
+          candidate_organization_id: string
+          email_value: string
+        }
+        Returns: Json
+      }
+      staff_partner_overview: { Args: { actor_user_id: string }; Returns: Json }
       staff_prepare_disbursement: {
         Args: {
           actor_user_id: string
           amount_value_cents: number
-          beneficiary_ref: string
           candidate_allocation_id: string
           evidence_value: Json
+          payment_memo_value: string
         }
         Returns: Json
       }
@@ -282,11 +324,52 @@ export type Database = {
         }
         Returns: Json
       }
+      staff_reopen_donation_financials: {
+        Args: {
+          actor_user_id: string
+          candidate_donation_id: string
+          reason_value: string
+        }
+        Returns: Json
+      }
+      staff_reverse_cost: {
+        Args: {
+          actor_user_id: string
+          candidate_cost_id: string
+          reason_value: string
+        }
+        Returns: Json
+      }
+      staff_reverse_sale: {
+        Args: {
+          actor_user_id: string
+          candidate_sale_id: string
+          reason_value: string
+        }
+        Returns: Json
+      }
       staff_search_donations: {
         Args: {
           actor_user_id: string
           result_limit?: number
           search_term?: string
+        }
+        Returns: Json
+      }
+      staff_set_partner_member_status: {
+        Args: {
+          actor_user_id: string
+          candidate_organization_id: string
+          candidate_user_id: string
+          status_value: Database["app_private"]["Enums"]["membership_status"]
+        }
+        Returns: Json
+      }
+      staff_set_partner_organization_status: {
+        Args: {
+          actor_user_id: string
+          candidate_organization_id: string
+          status_value: Database["app_private"]["Enums"]["organization_status"]
         }
         Returns: Json
       }
@@ -296,6 +379,15 @@ export type Database = {
           candidate_device_id: string
           candidate_donation_id: string
           patch: Json
+        }
+        Returns: Json
+      }
+      staff_verify_partner_charity: {
+        Args: {
+          actor_user_id: string
+          canonical_name_value: string
+          ein_value?: string
+          pledge_id_value: string
         }
         Returns: Json
       }
@@ -735,6 +827,7 @@ export type Database = {
           created_at: string
           destination: string
           expires_at: string
+          pending_claim_id: string | null
           pkce_storage: Json
           state_hash: string
         }
@@ -743,6 +836,7 @@ export type Database = {
           created_at?: string
           destination: string
           expires_at: string
+          pending_claim_id?: string | null
           pkce_storage: Json
           state_hash: string
         }
@@ -751,10 +845,19 @@ export type Database = {
           created_at?: string
           destination?: string
           expires_at?: string
+          pending_claim_id?: string | null
           pkce_storage?: Json
           state_hash?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "auth_login_attempts_pending_claim_id_fkey"
+            columns: ["pending_claim_id"]
+            isOneToOne: false
+            referencedRelation: "pending_donation_claims"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       campaign_assets: {
         Row: {
@@ -1196,6 +1299,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "cost_allocation_applications_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "effective_donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "cost_allocation_applications_device_id_fkey"
             columns: ["device_id"]
             isOneToOne: false
@@ -1214,6 +1324,13 @@ export type Database = {
             columns: ["sale_result_id"]
             isOneToOne: false
             referencedRelation: "device_sale_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_allocation_applications_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "effective_device_sales"
             referencedColumns: ["id"]
           },
         ]
@@ -1271,6 +1388,13 @@ export type Database = {
             columns: ["reversal_of"]
             isOneToOne: false
             referencedRelation: "device_sale_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_sale_results_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "effective_device_sales"
             referencedColumns: ["id"]
           },
         ]
@@ -1356,32 +1480,85 @@ export type Database = {
       disbursement_preparations: {
         Row: {
           amount_cents: number
+          approval_policy_id: string | null
+          approval_preparer_may_approve: boolean | null
+          approval_required_count: number | null
+          beneficiary_charity_id: string | null
+          beneficiary_pledge_id: string | null
           beneficiary_reference: string
+          campaign_id: string | null
           currency: string
           evidence: Json
           id: string
+          organization_id: string | null
+          payment_memo: string | null
           prepared_at: string
           prepared_by: string
         }
         Insert: {
           amount_cents: number
+          approval_policy_id?: string | null
+          approval_preparer_may_approve?: boolean | null
+          approval_required_count?: number | null
+          beneficiary_charity_id?: string | null
+          beneficiary_pledge_id?: string | null
           beneficiary_reference: string
+          campaign_id?: string | null
           currency?: string
           evidence?: Json
           id?: string
+          organization_id?: string | null
+          payment_memo?: string | null
           prepared_at?: string
           prepared_by: string
         }
         Update: {
           amount_cents?: number
+          approval_policy_id?: string | null
+          approval_preparer_may_approve?: boolean | null
+          approval_required_count?: number | null
+          beneficiary_charity_id?: string | null
+          beneficiary_pledge_id?: string | null
           beneficiary_reference?: string
+          campaign_id?: string | null
           currency?: string
           evidence?: Json
           id?: string
+          organization_id?: string | null
+          payment_memo?: string | null
           prepared_at?: string
           prepared_by?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "disbursement_preparations_approval_policy_id_fkey"
+            columns: ["approval_policy_id"]
+            isOneToOne: false
+            referencedRelation: "financial_approval_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disbursement_preparations_beneficiary_charity_id_fkey"
+            columns: ["beneficiary_charity_id"]
+            isOneToOne: false
+            referencedRelation: "charities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disbursement_preparations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "disbursement_preparations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       disbursements: {
         Row: {
@@ -1562,6 +1739,13 @@ export type Database = {
             columns: ["reversal_of"]
             isOneToOne: false
             referencedRelation: "donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donation_costs_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "effective_donation_costs"
             referencedColumns: ["id"]
           },
         ]
@@ -1798,6 +1982,9 @@ export type Database = {
           completed_at: string | null
           created_at: string
           donor_contact_id: string
+          financial_inputs_finalized_at: string | null
+          financial_inputs_finalized_by: string | null
+          financial_revision: number
           id: string
           package_condition: string | null
           policy_resolution_status: string
@@ -1822,6 +2009,9 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           donor_contact_id: string
+          financial_inputs_finalized_at?: string | null
+          financial_inputs_finalized_by?: string | null
+          financial_revision?: number
           id?: string
           package_condition?: string | null
           policy_resolution_status?: string
@@ -1846,6 +2036,9 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           donor_contact_id?: string
+          financial_inputs_finalized_at?: string | null
+          financial_inputs_finalized_by?: string | null
+          financial_revision?: number
           id?: string
           package_condition?: string | null
           policy_resolution_status?: string
@@ -2020,6 +2213,144 @@ export type Database = {
           version?: number
         }
         Relationships: []
+      }
+      financial_cost_applications: {
+        Row: {
+          applied_cents: number
+          calculation_snapshot: Json
+          cost_id: string
+          policy_rule_id: string
+          snapshot_id: string
+        }
+        Insert: {
+          applied_cents: number
+          calculation_snapshot: Json
+          cost_id: string
+          policy_rule_id: string
+          snapshot_id: string
+        }
+        Update: {
+          applied_cents?: number
+          calculation_snapshot?: Json
+          cost_id?: string
+          policy_rule_id?: string
+          snapshot_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_cost_applications_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_cost_applications_cost_id_fkey"
+            columns: ["cost_id"]
+            isOneToOne: false
+            referencedRelation: "effective_donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_cost_applications_policy_rule_id_fkey"
+            columns: ["policy_rule_id"]
+            isOneToOne: false
+            referencedRelation: "proceeds_policy_cost_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_cost_applications_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reconciliation_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_reconciliation_devices: {
+        Row: {
+          device_id: string
+          ordinal: number
+          sale_result_id: string
+          snapshot_id: string
+        }
+        Insert: {
+          device_id: string
+          ordinal: number
+          sale_result_id: string
+          snapshot_id: string
+        }
+        Update: {
+          device_id?: string
+          ordinal?: number
+          sale_result_id?: string
+          snapshot_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_reconciliation_devices_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "donation_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_reconciliation_devices_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "device_sale_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_reconciliation_devices_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "effective_device_sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_reconciliation_devices_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reconciliation_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_reconciliation_snapshots: {
+        Row: {
+          donation_id: string
+          eligible_device_count: number
+          finalized_at: string
+          finalized_by: string
+          id: string
+          revision: number
+        }
+        Insert: {
+          donation_id: string
+          eligible_device_count: number
+          finalized_at?: string
+          finalized_by: string
+          id?: string
+          revision: number
+        }
+        Update: {
+          donation_id?: string
+          eligible_device_count?: number
+          finalized_at?: string
+          finalized_by?: string
+          id?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_reconciliation_snapshots_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       organization_charities: {
         Row: {
@@ -2225,21 +2556,107 @@ export type Database = {
           },
         ]
       }
+      partner_invitations: {
+        Row: {
+          activated_at: string | null
+          activated_by: string | null
+          email_search: string
+          id: string
+          invited_at: string
+          invited_by: string
+          organization_id: string
+          role: Database["app_private"]["Enums"]["organization_role"]
+          status: Database["app_private"]["Enums"]["membership_status"]
+          suspended_at: string | null
+          suspended_by: string | null
+        }
+        Insert: {
+          activated_at?: string | null
+          activated_by?: string | null
+          email_search: string
+          id?: string
+          invited_at?: string
+          invited_by: string
+          organization_id: string
+          role?: Database["app_private"]["Enums"]["organization_role"]
+          status?: Database["app_private"]["Enums"]["membership_status"]
+          suspended_at?: string | null
+          suspended_by?: string | null
+        }
+        Update: {
+          activated_at?: string | null
+          activated_by?: string | null
+          email_search?: string
+          id?: string
+          invited_at?: string
+          invited_by?: string
+          organization_id?: string
+          role?: Database["app_private"]["Enums"]["organization_role"]
+          status?: Database["app_private"]["Enums"]["membership_status"]
+          suspended_at?: string | null
+          suspended_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_donation_claims: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          donation_id: string
+          expires_at: string
+          id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          donation_id: string
+          expires_at: string
+          id?: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          donation_id?: string
+          expires_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_donation_claims_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       proceeds_allocations: {
         Row: {
           allocable_base_cents: number
           allocated_cents: number | null
+          beneficiary_charity_id: string | null
           beneficiary_pledge_id: string
           calculated_at: string | null
           calculated_by: string | null
           calculation_snapshot: Json
+          campaign_id: string | null
           created_at: string
           currency: string
           donation_id: string
           eligible_cost_cents: number
           gross_cents: number
           id: string
+          organization_id: string | null
           policy_version_id: string | null
+          reconciliation_snapshot_id: string | null
           reversal_of: string | null
           sale_result_id: string | null
           share_basis_points: number | null
@@ -2248,17 +2665,21 @@ export type Database = {
         Insert: {
           allocable_base_cents: number
           allocated_cents?: number | null
+          beneficiary_charity_id?: string | null
           beneficiary_pledge_id: string
           calculated_at?: string | null
           calculated_by?: string | null
           calculation_snapshot?: Json
+          campaign_id?: string | null
           created_at?: string
           currency?: string
           donation_id: string
           eligible_cost_cents?: number
           gross_cents: number
           id?: string
+          organization_id?: string | null
           policy_version_id?: string | null
+          reconciliation_snapshot_id?: string | null
           reversal_of?: string | null
           sale_result_id?: string | null
           share_basis_points?: number | null
@@ -2267,23 +2688,41 @@ export type Database = {
         Update: {
           allocable_base_cents?: number
           allocated_cents?: number | null
+          beneficiary_charity_id?: string | null
           beneficiary_pledge_id?: string
           calculated_at?: string | null
           calculated_by?: string | null
           calculation_snapshot?: Json
+          campaign_id?: string | null
           created_at?: string
           currency?: string
           donation_id?: string
           eligible_cost_cents?: number
           gross_cents?: number
           id?: string
+          organization_id?: string | null
           policy_version_id?: string | null
+          reconciliation_snapshot_id?: string | null
           reversal_of?: string | null
           sale_result_id?: string | null
           share_basis_points?: number | null
           status?: Database["app_private"]["Enums"]["allocation_status"]
         }
         Relationships: [
+          {
+            foreignKeyName: "proceeds_allocations_beneficiary_charity_id_fkey"
+            columns: ["beneficiary_charity_id"]
+            isOneToOne: false
+            referencedRelation: "charities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proceeds_allocations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "proceeds_allocations_donation_id_fkey"
             columns: ["donation_id"]
@@ -2292,10 +2731,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "proceeds_allocations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "proceeds_allocations_policy_version_id_fkey"
             columns: ["policy_version_id"]
             isOneToOne: false
             referencedRelation: "proceeds_policy_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proceeds_allocations_reconciliation_snapshot_id_fkey"
+            columns: ["reconciliation_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reconciliation_snapshots"
             referencedColumns: ["id"]
           },
           {
@@ -2310,6 +2763,13 @@ export type Database = {
             columns: ["sale_result_id"]
             isOneToOne: false
             referencedRelation: "device_sale_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proceeds_allocations_sale_result_id_fkey"
+            columns: ["sale_result_id"]
+            isOneToOne: false
+            referencedRelation: "effective_device_sales"
             referencedColumns: ["id"]
           },
         ]
@@ -2592,7 +3052,156 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      effective_device_sales: {
+        Row: {
+          channel: string | null
+          created_at: string | null
+          currency: string | null
+          device_id: string | null
+          external_reference: string | null
+          gross_amount_cents: number | null
+          id: string | null
+          recorded_by: string | null
+          reversal_of: string | null
+          sold_at: string | null
+          status:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Insert: {
+          channel?: string | null
+          created_at?: string | null
+          currency?: string | null
+          device_id?: string | null
+          external_reference?: string | null
+          gross_amount_cents?: number | null
+          id?: string | null
+          recorded_by?: string | null
+          reversal_of?: string | null
+          sold_at?: string | null
+          status?:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Update: {
+          channel?: string | null
+          created_at?: string | null
+          currency?: string | null
+          device_id?: string | null
+          external_reference?: string | null
+          gross_amount_cents?: number | null
+          id?: string | null
+          recorded_by?: string | null
+          reversal_of?: string | null
+          sold_at?: string | null
+          status?:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_sale_results_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "donation_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_sale_results_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "device_sale_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_sale_results_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "effective_device_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      effective_donation_costs: {
+        Row: {
+          amount_cents: number | null
+          category: string | null
+          created_at: string | null
+          currency: string | null
+          device_id: string | null
+          donation_id: string | null
+          evidence_reference: string | null
+          id: string | null
+          incurred_at: string | null
+          recorded_by: string | null
+          reversal_of: string | null
+          status:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          device_id?: string | null
+          donation_id?: string | null
+          evidence_reference?: string | null
+          id?: string | null
+          incurred_at?: string | null
+          recorded_by?: string | null
+          reversal_of?: string | null
+          status?:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Update: {
+          amount_cents?: number | null
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          device_id?: string | null
+          donation_id?: string | null
+          evidence_reference?: string | null
+          id?: string | null
+          incurred_at?: string | null
+          recorded_by?: string | null
+          reversal_of?: string | null
+          status?:
+            | Database["app_private"]["Enums"]["financial_entry_status"]
+            | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "donation_costs_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "donation_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donation_costs_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donation_costs_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "donation_costs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "donation_costs_reversal_of_fkey"
+            columns: ["reversal_of"]
+            isOneToOne: false
+            referencedRelation: "effective_donation_costs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       assert_active_staff: {

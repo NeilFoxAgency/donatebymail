@@ -91,6 +91,10 @@ enforces a seven-day absolute session limit, invalidates the upstream session
 on logout, and requires same-origin, session-bound CSRF proof for mutations.
 Browser code never receives the Supabase authorization tokens. Staff authority
 is rechecked against active database membership after callback and on requests.
+Donation claim capabilities arrive in a URL fragment, are erased immediately,
+and are exchanged for opaque, short-lived server state. Only a bounded account
+login attempt can carry that action across PKCE, and the verified Auth email
+must still match the donation contact before the one-time claim is consumed.
 
 ### Service credentials and supply chain
 
@@ -136,6 +140,22 @@ a donation if persistence depends on delivery. The transaction commits business
 state and an outbox item first. Handlers are idempotent, leased, bounded, and
 redacted; failures become visible without discarding the business record.
 
+### Financial corrections and partner authority
+
+Sales and costs are append-only facts. Reversals remove originals from the
+effective ledger without deleting history, and corrected replacements are
+accepted only while financial inputs are explicitly open. Allocation waits for
+physical reconciliation and input finalization; the eligible-device set and
+cost applications are frozen. Reopening creates an allocation reversal and is
+denied after approval or disbursement. Disbursement preparation derives its
+canonical charity and snapshots its approval requirements.
+
+Partner roles originate only from audited staff invitations matched to a
+verified passwordless identity. Active membership and an active organization
+are checked together. Agent commands cannot grant roles. Campaign assets are
+disabled until immutable storage, byte validation, digest binding, and a public
+serving route are implemented as one complete control.
+
 ### Browser hardening and administrative email
 
 The Worker deploys a CSP with exact production and staging Pledge origins,
@@ -148,13 +168,15 @@ street address stay in the private workspace rather than routine email.
 
 ### Current beta abuse boundary
 
-The beta is a public, synthetic-data-only test environment, not a public beta
-approved for real donor data. Turnstile remains absent so automation can test
+The beta is a synthetic-data-only test environment, not a public beta approved
+for real donor data. Cloudflare Access is the required perimeter, with named
+human identities and a separate service-token policy for automation. Until an
+unauthenticated challenge and both authorized paths are verified, beta must be
+treated as public. Turnstile remains absent so authorized automation can test
 the flow. Anonymous donation and passwordless-email endpoints use server-side,
 privacy-preserving IP-bucket rate limits, generic authentication responses,
 bounded payloads, and idempotent email delivery. Production cutover still
-requires server-verified Turnstile and a separate review; Cloudflare Access is
-an optional stronger boundary for staff-only test periods.
+requires server-verified Turnstile and a separate review.
 
 ### Out-of-scope attacker stories
 

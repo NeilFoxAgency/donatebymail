@@ -101,31 +101,33 @@ select is(api.evaluate_agent_command('agent-beta','update_campaign_content','cam
 select is((select count(*)::bigint from app_private.action_decisions where actor_ref='agent-beta'),3::bigint,
   'all agent decisions are recorded');
 
+update app_private.donation_devices set receipt_status='received',received_at=now(),inspection_status='inspected',
+  inspected_at=now(),inspected_by='81000000-0000-4000-8000-000000000005',processing_status='resale'
+where donation_id=(select (result->>'donationId')::uuid from donor_created);
 select lives_ok(format($$select api.staff_record_sale_and_allocation(
   '81000000-0000-4000-8000-000000000005',%L::uuid,10000,'beta_test','sale-1',now())$$,
   (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from donor_created))),
-  'staff can record a sale result through a narrow financial command');
+  'staff can record a reconciled sale result through a narrow financial command');
+select lives_ok(format($$select api.staff_finalize_donation_financials(
+  '81000000-0000-4000-8000-000000000005',%L::uuid)$$,
+  (select (result->>'donationId')::uuid from donor_created)),'staff explicitly finalizes financial inputs');
 select is((select status::text from app_private.proceeds_allocations limit 1),'policy_hold',
-  'sale stays on policy hold when no approved policy snapshot exists');
+  'finalized inputs stay on policy hold when no approved policy snapshot exists');
 select is((api.staff_financial_overview('81000000-0000-4000-8000-000000000005')->>'policyHolds')::integer > 0,
   true,'staff dashboard exposes operational policy holds');
 select throws_ok($$update app_private.device_sale_results set gross_amount_cents=1$$,
   '55000','device_sale_results is append-only','recorded sale results cannot be rewritten');
 
-select lives_ok(format($$select api.staff_record_cost(
-  '81000000-0000-4000-8000-000000000005',%L::uuid,null,'shipping_materials',500,
-  'receipt-beta',now())$$,(select (result->>'donationId')::uuid from donor_created)),
-  'staff can record an evidenced cost candidate');
 insert into app_private.proceeds_allocations(
   id,donation_id,policy_version_id,beneficiary_pledge_id,gross_cents,
   eligible_cost_cents,allocable_base_cents,share_basis_points,allocated_cents,
-  status,calculated_by,calculated_at
+  status,calculated_by,calculated_at,beneficiary_charity_id
 ) values(
   '84000000-0000-4000-8000-000000000001',
   (select (result->>'donationId')::uuid from donor_created),
   '10000000-0000-0000-0000-000000000002',
   '3685b542-61d5-45da-9580-162dca725966',10000,0,10000,5000,5000,
-  'calculated','81000000-0000-4000-8000-000000000005',now()
+  'calculated','81000000-0000-4000-8000-000000000005',now(),'82000000-0000-4000-8000-000000000011'
 );
 select lives_ok($$select api.staff_prepare_disbursement(
   '81000000-0000-4000-8000-000000000005','84000000-0000-4000-8000-000000000001',

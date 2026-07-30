@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimUrl,
   createTrackingToken,
   trackingMessage,
   trackingUrl,
@@ -27,5 +28,20 @@ describe("donation tracking capabilities", () => {
     expect(url.pathname).toBe("/track");
     expect(url.search).toBe("");
     expect(url.hash).toContain("token=");
+  });
+
+  it("keeps donation-claim capabilities out of the request URL", () => {
+    const url = new URL(
+      claimUrl(
+        "https://beta.donatebymail.org",
+        "DBM-20260730-ABCDEF12",
+        "one-time-claim-capability",
+      ),
+    );
+
+    expect(url.pathname).toBe("/account");
+    expect(url.search).toBe("");
+    expect(url.hash).toContain("donation=DBM-20260730-ABCDEF12");
+    expect(url.hash).toContain("claim=one-time-claim-capability");
   });
 });

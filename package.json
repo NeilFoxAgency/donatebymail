@@ -21,6 +21,7 @@
     "db:lint": "supabase db lint --local --schema app_private,api --level warning --fail-on warning",
     "db:types": "supabase gen types typescript --local --schema api,app_private > src/types/database.generated.ts",
     "security:secrets": "node scripts/check-no-secrets.mjs",
+    "smoke:beta": "node scripts/beta-smoke.mjs",
     "deploy": "node scripts/refuse-implicit-deploy.mjs",
     "deploy:beta": "npm run verify:app && wrangler deploy --env beta",
     "deploy:beta:dry-run": "npm run verify:app && wrangler deploy --env beta --dry-run",

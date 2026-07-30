@@ -50,7 +50,9 @@ audit history, service credentials, and outbound communication authority.
 - Changes to authentication, authorization, PII handling, uploads, agent tools,
   financial operations, or deployment require threat-model review.
 - The beta intentionally omits Turnstile for testability and accepts synthetic
-  data only; server-side rate limits protect donation and magic-link requests.
+  data only. Cloudflare Access is required before real donor testing;
+  server-side rate limits remain defense in depth. Until Access activation is
+  verified, beta must be treated as public and must not receive personal data.
   Production cutover must add server-verified Turnstile to anonymous write
   endpoints; a browser token alone is not accepted as proof.
 

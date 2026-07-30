@@ -24,6 +24,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npx wrangler deploy --env beta --dry-run
+      - name: Access-protected beta smoke
+        if: env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != ''
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: npm run smoke:beta
 
   database:
     runs-on: ubuntu-latest

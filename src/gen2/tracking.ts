@@ -41,7 +41,7 @@ export async function verifyClaimToken(secret: string, donationId: string, nonce
 
 export function claimUrl(origin: string, publicId: string, token: string): string {
   const base = new URL("/account", origin);
-  base.search = new URLSearchParams({ donation: publicId, claim: token }).toString();
+  base.hash = new URLSearchParams({ donation: publicId, claim: token }).toString();
   return base.toString();
 }
 

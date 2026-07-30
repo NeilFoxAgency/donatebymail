@@ -72,6 +72,11 @@ const JSON_HEADERS = {
 
 const requestSessions = new WeakMap<Request, BffSession>();
 const refreshedCookies = new WeakMap<Request, string>();
+const PENDING_CLAIM_COOKIE = "__Host-dbm_pending_claim";
+
+function pendingClaimCookie(value: string, maxAge = 1200): string {
+  return `${PENDING_CLAIM_COOKIE}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
+}
 
 class PkceStorage {
   values: Record<string, string>;
@@ -627,6 +632,9 @@ async function sendMagicLink(request: Request, env: WorkerEnv, destination: "/st
     await supabaseRpc(env, "create_auth_login_attempt", {
       state_hash_value: await sha256Hex(state), destination_value: destination,
       storage_value: storage.values, expires_at_value: new Date(Date.now() + 15 * 60_000).toISOString(),
+      pending_claim_value: destination === "/account"
+        ? cookieValue(request.headers.get("cookie"), PENDING_CLAIM_COOKIE)
+        : null,
     });
     return generic;
   } catch {
@@ -638,7 +646,7 @@ async function handleAuthCallback(request: Request, env: WorkerEnv): Promise<Res
   const url = new URL(request.url), state = url.searchParams.get("state"), code = url.searchParams.get("code");
   if (!state || !code || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.BFF_SESSION_SECRET)
     return Response.redirect(`${url.origin}/?auth=invalid`, 303);
-  const attempt = await supabaseRpc<{ destination: "/staff" | "/account" | "/partner"; storage: Record<string, string> } | null>(env, "consume_auth_login_attempt", {
+  const attempt = await supabaseRpc<{ destination: "/staff" | "/account" | "/partner"; storage: Record<string, string>; pendingClaimId?: string | null } | null>(env, "consume_auth_login_attempt", {
     state_hash_value: await sha256Hex(state),
   });
   if (!attempt) return Response.redirect(`${url.origin}/?auth=expired`, 303);
@@ -652,6 +660,21 @@ async function handleAuthCallback(request: Request, env: WorkerEnv): Promise<Res
     await client.auth.signOut();
     return Response.redirect(`${url.origin}/staff?auth=denied`, 303);
   }
+  if (attempt.destination === "/partner" && data.user.email) {
+    await supabaseRpc(env, "activate_partner_invitations", {
+      actor_user_id: data.user.id, verified_email: data.user.email,
+    });
+  }
+  let claimCompleted = false;
+  if (attempt.destination === "/account" && attempt.pendingClaimId && data.user.email) {
+    try {
+      await supabaseRpc(env, "complete_pending_donation_claim", {
+        actor_user_id: data.user.id, pending_claim_value: attempt.pendingClaimId,
+        verified_email: data.user.email,
+      });
+      claimCompleted = true;
+    } catch { /* Fail closed; the account page explains that the claim was not completed. */ }
+  }
   const now = Date.now();
   const session: BffSession = {
     accessToken: data.session.access_token, refreshToken: data.session.refresh_token,
@@ -659,9 +682,40 @@ async function handleAuthCallback(request: Request, env: WorkerEnv): Promise<Res
     absoluteExpiresAt: now + 7 * 24 * 60 * 60_000,
     csrf: bytesToToken(32),
   };
-  const headers = new Headers({ location: `${url.origin}${attempt.destination}`, "cache-control": "no-store" });
+  const destination = attempt.destination === "/account"
+    ? `/account?claim=${claimCompleted ? "complete" : attempt.pendingClaimId ? "failed" : "none"}`
+    : attempt.destination;
+  const headers = new Headers({ location: `${url.origin}${destination}`, "cache-control": "no-store" });
   headers.append("set-cookie", sessionCookie(await sealSession(session, env.BFF_SESSION_SECRET)));
+  headers.append("set-cookie", pendingClaimCookie("", 0));
   return new Response(null, { status: 303, headers });
+}
+
+async function handleClaimHandoff(request: Request, env: WorkerEnv): Promise<Response> {
+  if (!sameOrigin(request)) return json({ ok: false, message: "Request not allowed." }, 403);
+  const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+  const publicId = stringValue(body.publicId), token = stringValue(body.claimToken);
+  if (!publicId || !token || !env.DONATION_TRACKING_SECRET)
+    return json({ ok: false, message: "The claim reference is invalid." }, 400);
+  const material = await supabaseRpc<TrackingMaterial | null>(env, "get_donation_claim_material", {
+    candidate_public_id: publicId,
+  });
+  if (!material?.claimNonce || !(await verifyClaimToken(
+    env.DONATION_TRACKING_SECRET, material.donationId, material.claimNonce, token,
+  ))) return json({ ok: false, message: "The claim reference is invalid or expired." }, 404);
+  const user = await authenticatedUser(request, env);
+  if (user?.email) {
+    const result = await supabaseRpc(env, "claim_donation", {
+      actor_user_id: user.id, candidate_donation_id: material.donationId, verified_email: user.email,
+    });
+    return json({ ok: true, claimed: true, result });
+  }
+  const pendingId = await supabaseRpc<string>(env, "create_pending_donation_claim", {
+    candidate_donation_id: material.donationId,
+  });
+  const response = json({ ok: true, claimed: false, pending: true });
+  response.headers.append("set-cookie", pendingClaimCookie(pendingId));
+  return response;
 }
 
 function bytesToToken(size: number): string {
@@ -716,11 +770,33 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
       incurred_time: body.incurredAt || new Date().toISOString(),
     }) });
   }
+  if (request.method === "POST" && url.pathname === "/api/staff/finance/finalize") {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    return json({ ok: true, result: await supabaseRpc(env, "staff_finalize_donation_financials", {
+      actor_user_id: staff.id, candidate_donation_id: body.donationId,
+    }) });
+  }
+  if (request.method === "POST" && url.pathname === "/api/staff/finance/reopen") {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    return json({ ok: true, result: await supabaseRpc(env, "staff_reopen_donation_financials", {
+      actor_user_id: staff.id, candidate_donation_id: body.donationId, reason_value: body.reason,
+    }) });
+  }
+  const correction = url.pathname.match(/^\/api\/staff\/finance\/(sales|costs)\/([0-9a-f-]{36})\/reverse$/i);
+  if (request.method === "POST" && correction) {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    return json({ ok: true, result: await supabaseRpc(env,
+      correction[1] === "sales" ? "staff_reverse_sale" : "staff_reverse_cost", {
+        actor_user_id: staff.id,
+        [correction[1] === "sales" ? "candidate_sale_id" : "candidate_cost_id"]: correction[2],
+        reason_value: body.reason,
+      }) });
+  }
   if (request.method === "POST" && url.pathname === "/api/staff/finance/disbursements/prepare") {
     const body = (await readJson(request, 12_000)) as Record<string, unknown>;
     return json({ ok: true, result: await supabaseRpc(env, "staff_prepare_disbursement", {
       actor_user_id: staff.id, candidate_allocation_id: body.allocationId,
-      amount_value_cents: body.amountCents, beneficiary_ref: body.beneficiaryReference,
+      amount_value_cents: body.amountCents, payment_memo_value: body.paymentMemo || null,
       evidence_value: body.evidence || {},
     }) });
   }
@@ -740,6 +816,46 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
   }
   if (request.method === "GET" && url.pathname === "/api/staff/campaigns") {
     return json({ ok: true, campaigns: await supabaseRpc(env, "staff_campaign_overview", { actor_user_id: staff.id }) });
+  }
+  if (request.method === "GET" && url.pathname === "/api/staff/partners") {
+    return json({ ok: true, partners: await supabaseRpc(env, "staff_partner_overview", { actor_user_id: staff.id }) });
+  }
+  if (request.method === "POST" && url.pathname === "/api/staff/partners/organizations") {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    return json({ ok: true, result: await supabaseRpc(env, "staff_create_partner_organization", {
+      actor_user_id: staff.id, name_value: body.name, slug_value: body.slug,
+    }) });
+  }
+  const partnerOrgAction = url.pathname.match(/^\/api\/staff\/partners\/organizations\/([0-9a-f-]{36})\/(charities|invitations|status)$/i);
+  if (request.method === "POST" && partnerOrgAction) {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    if (partnerOrgAction[2] === "charities") {
+      const pledgeId = stringValue(body.pledgeId);
+      if (!pledgeId) return json({ ok: false, message: "A Pledge nonprofit ID is required." }, 400);
+      const charity = await lookupOrganization(pledgeId, env);
+      if (!charity) return json({ ok: false, message: "The nonprofit could not be verified with Pledge." }, 404);
+      const verified = await supabaseRpc<{ charityId: string }>(env, "staff_verify_partner_charity", {
+        actor_user_id: staff.id, pledge_id_value: charity.pledgeId,
+        canonical_name_value: charity.name, ein_value: charity.ein || null,
+      });
+      return json({ ok: true, result: await supabaseRpc(env, "staff_associate_partner_charity", {
+        actor_user_id: staff.id, candidate_organization_id: partnerOrgAction[1],
+        candidate_charity_id: verified.charityId,
+      }) });
+    }
+    return json({ ok: true, result: await supabaseRpc(env,
+      partnerOrgAction[2] === "invitations" ? "staff_invite_partner_admin" : "staff_set_partner_organization_status", {
+        actor_user_id: staff.id, candidate_organization_id: partnerOrgAction[1],
+        ...(partnerOrgAction[2] === "invitations" ? { email_value: body.email } : { status_value: body.status }),
+      }) });
+  }
+  const partnerMember = url.pathname.match(/^\/api\/staff\/partners\/organizations\/([0-9a-f-]{36})\/members\/([0-9a-f-]{36})\/status$/i);
+  if (request.method === "POST" && partnerMember) {
+    const body = (await readJson(request, 8_000)) as Record<string, unknown>;
+    return json({ ok: true, result: await supabaseRpc(env, "staff_set_partner_member_status", {
+      actor_user_id: staff.id, candidate_organization_id: partnerMember[1],
+      candidate_user_id: partnerMember[2], status_value: body.status,
+    }) });
   }
   if (request.method === "POST" && url.pathname === "/api/staff/campaigns/publish") {
     const body = (await readJson(request, 10_000)) as Record<string, unknown>;
@@ -874,11 +990,11 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   }
   if (request.method === "POST" && campaign) {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
-    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null });
+    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel });
     const result = await supabaseRpc(env, "partner_create_campaign_revision", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1], headline_value: body.headline,
       summary_value: body.summary, story_value: body.story, cta_value: body.ctaLabel || "Donate a Phone",
-      hero_asset_value: body.heroAssetId || null, content_hash_value: await sha256Hex(canonical),
+      hero_asset_value: null, content_hash_value: await sha256Hex(canonical),
     });
     return json({ ok: true, result }, 201);
   }
@@ -987,6 +1103,8 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       return sendMagicLink(request, env, "/staff", true);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/account/auth/magic-link")
       return sendMagicLink(request, env, "/account");
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/account/claim-intents")
+      return handleClaimHandoff(request, env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "POST" && url.pathname === "/api/partner/auth/magic-link")
       return sendMagicLink(request, env, "/partner");
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && url.pathname === "/api/auth/callback")

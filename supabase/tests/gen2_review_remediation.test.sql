@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(49);
+select plan(53);
 select set_config('request.jwt.claim.role','service_role',true);
 
 select has_table('app_private','auth_login_attempts','server-side cross-device PKCE state exists');
@@ -116,48 +116,49 @@ insert into app_private.donation_costs(donation_id,device_id,category,amount_cen
 ((select (result->>'donationId')::uuid from finance_donation),(select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1),'device_processing',300,now(),'91000000-0000-4000-8000-000000000010'),
 ((select (result->>'donationId')::uuid from finance_donation),null,'capped_fee',900,now(),'91000000-0000-4000-8000-000000000010'),
 ((select (result->>'donationId')::uuid from finance_donation),null,'non_deductible',9999,now(),'91000000-0000-4000-8000-000000000010');
-select lives_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10000,'test','sale-a',now())$$,
+select throws_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10000,'test','too-early',now())$$,
   (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),
-  'first device sale applies configured shared, direct, and capped rules');
-select is((select eligible_cost_cents from app_private.proceeds_allocations where gross_cents=10000),1300::bigint,'first sale deducts exactly 1300 cents');
-select is((select allocated_cents from app_private.proceeds_allocations where gross_cents=10000),4350::bigint,'first allocation is reproducible in cents');
+  '22023','received, inspected, resale-eligible device required','sale before physical reconciliation is rejected');
+select lives_ok(format($$update app_private.donation_devices set receipt_status='received',received_at=now(),
+  inspection_status='inspected',inspected_at=now(),inspected_by='91000000-0000-4000-8000-000000000010',processing_status='resale'
+  where donation_id=%L::uuid$$,(select (result->>'donationId')::uuid from finance_donation)),'staff fixtures reconcile both expected devices');
+select lives_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10000,'test','sale-a',now())$$,
+  (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),'first reconciled sale is recorded without allocating');
 select throws_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10000,'test','duplicate',now())$$,
   (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),
-  '23505',null,'duplicate active device sale is rejected');
+  '23505','device already has an effective sale','duplicate effective sale is rejected');
+select lives_ok(format($$select api.staff_reverse_sale('91000000-0000-4000-8000-000000000010',%L::uuid,'correct amount')$$,
+  (select id from app_private.device_sale_results where external_reference='sale-a')),'append-only sale reversal is accepted before finalization');
+select lives_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,11000,'test','sale-a-corrected',now())$$,
+  (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id limit 1)),'corrected replacement sale is allowed');
 select lives_ok(format($$select api.staff_record_sale_and_allocation('91000000-0000-4000-8000-000000000010',%L::uuid,10001,'test','sale-b',now())$$,
-  (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id desc limit 1)),
-  'second device sale receives only its deterministic shared-cost share');
-select is((select sum(applied_cents) from app_private.cost_allocation_applications a join app_private.donation_costs c on c.id=a.cost_id where c.category='shared_shipping'),1000::numeric,'shared cost is allocated exactly once across devices');
-select is((select count(*) from app_private.cost_allocation_applications a join app_private.donation_costs c on c.id=a.cost_id where c.category='non_deductible'),0::bigint,'non-deductible cost rule is excluded');
-
-select throws_ok(format($$select api.staff_prepare_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,1,'Beneficiary','{}')$$,
-  (select id from app_private.proceeds_allocations where gross_cents=10000)),'22023','full calculated allocation required','partial payment cannot strand a balance');
-select lives_ok(format($$select api.staff_prepare_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,4350,'Beneficiary','{}')$$,
-  (select id from app_private.proceeds_allocations where gross_cents=10000)),'full unpaid allocation can be prepared');
-select lives_ok(format($$select api.staff_decide_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,'approved','reviewed')$$,
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10000)),
-  'single-staff configurable approval can approve');
-select lives_ok(format($$select api.staff_record_disbursement_completion('91000000-0000-4000-8000-000000000010',%L::uuid,'external-1')$$,
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10000)),
-  'human records externally completed payment');
-select is((select status::text from app_private.proceeds_allocations where gross_cents=10000),'disbursed','allocation current status agrees with append-only state history');
+  (select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from finance_donation) order by id desc limit 1)),'second sale can arrive in any order before finalization');
+select lives_ok(format($$select api.staff_reverse_cost('91000000-0000-4000-8000-000000000010',%L::uuid,'replace shared cost')$$,
+  (select id from app_private.donation_costs where category='shared_shipping')),'append-only cost reversal succeeds');
+select lives_ok(format($$select api.staff_record_cost('91000000-0000-4000-8000-000000000010',%L::uuid,null,'shared_shipping',1000,'corrected',now())$$,
+  (select (result->>'donationId')::uuid from finance_donation)),'corrected replacement cost is recorded');
+select is((select sum(amount_cents) from app_private.effective_donation_costs where category='shared_shipping'),1000::numeric,'reversed original is excluded from effective costs');
+select lives_ok(format($$select api.staff_finalize_donation_financials('91000000-0000-4000-8000-000000000010',%L::uuid)$$,
+  (select (result->>'donationId')::uuid from finance_donation)),'reconciled set and financial inputs finalize atomically');
+select is((select gross_cents from app_private.proceeds_allocations where status='calculated'),21001::bigint,'corrected effective sales form one order-independent gross amount');
+select is((select eligible_cost_cents from app_private.proceeds_allocations where status='calculated'),2200::bigint,'eligible costs are applied once to the aggregate allocation');
+select is((select sum(applied_cents) from app_private.financial_cost_applications a join app_private.donation_costs c on c.id=a.cost_id where c.category='shared_shipping'),1000::numeric,'shared cost is applied exactly once with a frozen denominator');
+select is((select count(*) from app_private.financial_cost_applications a join app_private.donation_costs c on c.id=a.cost_id where c.category='non_deductible'),0::bigint,'non-deductible cost is excluded');
+select throws_ok(format($$select api.staff_record_cost('91000000-0000-4000-8000-000000000010',%L::uuid,null,'shared_shipping',1,'late',now())$$,
+  (select (result->>'donationId')::uuid from finance_donation)),'22023','open donation financial inputs required','late cost requires explicit reopen');
+select throws_ok(format($$select api.staff_prepare_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,1,'memo','{}')$$,
+  (select id from app_private.proceeds_allocations where status='calculated')),'22023','canonical calculated allocation and approval policy required','partial payment cannot strand a balance');
+select lives_ok(format($$select api.staff_prepare_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,9400,'memo','{}')$$,
+  (select id from app_private.proceeds_allocations where status='calculated')),'full allocation is prepared for its canonical charity');
 update app_private.financial_approval_policies set required_approvals=2,preparer_may_approve=false
 where action_type='record_disbursement' and lifecycle='active';
-select lives_ok(format($$select api.staff_prepare_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,4750,'Beneficiary','{}')$$,
-  (select id from app_private.proceeds_allocations where gross_cents=10001)),'second full allocation can use a later approval policy configuration');
-select throws_ok(format($$select api.staff_decide_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,'approved','self')$$,
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10001)),
-  '42501','preparer cannot approve under active policy','preparer separation is configurable and enforced');
-select is((api.staff_decide_disbursement('91000000-0000-4000-8000-000000000011',
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10001),
-  'approved','first reviewer')->>'status'),'prepared','one of two required approvals is insufficient');
-select lives_ok(format($$select api.staff_decide_disbursement('91000000-0000-4000-8000-000000000012',%L::uuid,'approved','second reviewer')$$,
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10001)),
-  'second distinct approval satisfies dual-control policy');
-select lives_ok(format($$select api.staff_record_disbursement_completion('91000000-0000-4000-8000-000000000012',%L::uuid,'external-2')$$,
-  (select preparation_id from app_private.disbursement_preparation_allocations x join app_private.proceeds_allocations a on a.id=x.allocation_id where a.gross_cents=10001)),
-  'approved dual-control preparation can record external completion');
-select is((select status::text from app_private.proceeds_allocations where gross_cents=10001),'disbursed','dual-control completion updates allocation current status');
+select lives_ok(format($$select api.staff_decide_disbursement('91000000-0000-4000-8000-000000000010',%L::uuid,'approved','snapshotted')$$,
+  (select preparation_id from app_private.disbursement_preparation_allocations)),'preparation keeps its original one-approval policy snapshot');
+select lives_ok(format($$select api.staff_record_disbursement_completion('91000000-0000-4000-8000-000000000010',%L::uuid,'external-1')$$,
+  (select preparation_id from app_private.disbursement_preparation_allocations)),'human records external payment completion');
+select is((select status::text from app_private.proceeds_allocations where gross_cents=21001),'disbursed','allocation status agrees with append-only state history');
+select throws_ok(format($$select api.staff_reopen_donation_financials('91000000-0000-4000-8000-000000000010',%L::uuid,'too late')$$,
+  (select (result->>'donationId')::uuid from finance_donation)),'22023','undisbursed calculated allocation required','post-disbursement correction fails closed');
 
 select * from finish();
 rollback;
