@@ -35,8 +35,12 @@ export async function publicApi<T = Record<string, unknown>>(path: string, init?
 
 export async function sessionStatus(path = "/api/auth/session"): Promise<boolean> {
   try {
-    const body = await publicApi<{ authenticated?: boolean }>(path);
-    return body.authenticated === true;
+    const body = await publicApi<{ authenticated?: boolean; ok?: boolean }>(path);
+    // The shared auth context reports `authenticated`; role-scoped session
+    // endpoints intentionally return only `{ ok: true, user }` after their
+    // authorization checks. Do not treat the generic auth context's
+    // `authenticated: false` as a successful role session.
+    return "authenticated" in body ? body.authenticated === true : body.ok === true;
   } catch {
     return false;
   }

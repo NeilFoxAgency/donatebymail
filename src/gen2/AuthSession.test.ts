@@ -20,6 +20,14 @@ describe("browser API response handling", () => {
     await expect(sessionStatus("/api/account/session")).resolves.toBe(false);
   });
 
+  it("accepts the role-scoped session shape without weakening generic auth", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => new Response(JSON.stringify(
+      path === "/api/staff/session" ? { ok: true, user: { id: "staff" } } : { ok: true, authenticated: false },
+    ), { status: 200, headers: { "content-type": "application/json" } })));
+    await expect(sessionStatus("/api/staff/session")).resolves.toBe(true);
+    await expect(sessionStatus("/api/auth/session")).resolves.toBe(false);
+  });
+
   it("uses JSON negotiation and included cookies for public API calls", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
       status: 200,
