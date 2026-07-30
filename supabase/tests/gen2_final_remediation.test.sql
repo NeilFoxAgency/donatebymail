@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(35);
+select plan(42);
 select set_config('request.jwt.claim.role','service_role',true);
 
 insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at)
@@ -78,6 +78,22 @@ select is((select gross_cents from app_private.proceeds_allocations where donati
 select is((select eligible_device_count from app_private.financial_reconciliation_snapshots where donation_id=(select (result->>'donationId')::uuid from mixed_fixture)),1,'mixed snapshot excludes recycled device');
 select is((select allocated_cents from app_private.proceeds_allocations where donation_id=(select (result->>'donationId')::uuid from mixed_fixture) and status='calculated'),617::bigint,'mixed proceeds share is based on sold value');
 select is((select count(*) from app_private.device_sale_results s join app_private.donation_devices x on x.id=s.device_id where x.donation_id=(select (result->>'donationId')::uuid from mixed_fixture)),1::bigint,'mixed donation has no fake sale');
+
+-- Pro-rata evidence records an uneven remainder against the frozen two-device
+-- denominator while applying the shared cost exactly once.
+create temporary table prorata_fixture as select api.create_donation(
+  '{"clientSubmissionKey":"a3000000-0000-4121-8000-000000000130","shippingMethod":"label","donor":{"firstName":"Pro","middleName":"","lastName":"Rata","email":"prorata-remediation@example.com","address1":"4 Main","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Remediation Charity"},"devices":[{"id":"p1","brand":"Apple","model":"Phone A","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true},{"id":"p2","brand":"Samsung","model":"Phone B","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb,
+  'a3000000-0000-0000-0000-000000000131','a3000000-0000-0000-0000-000000000132',repeat('e',64),null) result;
+update app_private.donation_devices set receipt_status='received',received_at=now(),inspection_status='inspected',inspected_at=now(),inspected_by='a3000000-0000-4000-8000-000000000001',processing_status='resale',data_wipe_status='completed',wipe_verified_at=now(),wipe_verified_by='a3000000-0000-4000-8000-000000000001'
+where donation_id=(select (result->>'donationId')::uuid from prorata_fixture);
+select lives_ok(format($$select api.staff_record_sale_and_allocation('a3000000-0000-4000-8000-000000000001',%L::uuid,1000,'test','prorata-sale-a',now())$$,(select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from prorata_fixture) and donor_device_key='p1')),'first pro-rata device sale records');
+select lives_ok(format($$select api.staff_record_sale_and_allocation('a3000000-0000-4000-8000-000000000001',%L::uuid,1000,'test','prorata-sale-b',now())$$,(select id from app_private.donation_devices where donation_id=(select (result->>'donationId')::uuid from prorata_fixture) and donor_device_key='p2')),'second pro-rata device sale records');
+insert into app_private.donation_costs(donation_id,category,amount_cents,incurred_at,recorded_by) values((select (result->>'donationId')::uuid from prorata_fixture),'shared_cost',501,now(),'a3000000-0000-4000-8000-000000000001');
+select lives_ok(format($$select api.staff_finalize_donation_financials('a3000000-0000-4000-8000-000000000001',%L::uuid)$$,(select (result->>'donationId')::uuid from prorata_fixture)),'uneven pro-rata donation finalizes');
+select is((select (a.calculation_snapshot->>'denominator')::integer from app_private.financial_cost_applications a join app_private.donation_costs c on c.id=a.cost_id where c.donation_id=(select (result->>'donationId')::uuid from prorata_fixture)),2,'pro-rata denominator is frozen eligible-device count');
+select is((select (a.calculation_snapshot->>'proRataBaseCents')::integer from app_private.financial_cost_applications a join app_private.donation_costs c on c.id=a.cost_id where c.donation_id=(select (result->>'donationId')::uuid from prorata_fixture)),250,'pro-rata base cents are deterministic');
+select is((select (a.calculation_snapshot->>'proRataRemainderCents')::integer from app_private.financial_cost_applications a join app_private.donation_costs c on c.id=a.cost_id where c.donation_id=(select (result->>'donationId')::uuid from prorata_fixture)),1,'pro-rata remainder cent is recorded');
+select is((select eligible_cost_cents from app_private.proceeds_allocations where donation_id=(select (result->>'donationId')::uuid from prorata_fixture) and status='calculated'),501::bigint,'pro-rata shared cost is applied exactly once');
 
 -- A wholly non-resalable donation closes with an explicit zero-proceeds
 -- allocation and no sale result.
