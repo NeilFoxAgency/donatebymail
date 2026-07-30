@@ -48,6 +48,8 @@ jobs:
       - run: npx supabase db lint --local --schema app_private,api --level warning --fail-on warning
       - run: npx supabase db advisors --local --type all --level warn --fail-on warn
       - run: npm run test:db
+      - name: Actual Worker + local Supabase integration
+        run: npm run test:integration
       - if: always()
         run: npm run db:stop
 

@@ -9,7 +9,7 @@ const migration = readFileSync("supabase/migrations/20260730041632_campaign_supp
 describe("campaign mini-funnel", () => {
   it("keeps the verified nonprofit and donor CTA prominent", () => {
     expect(page).toContain("Verified nonprofit");
-    expect(page).toContain("Choose a cause before you send your phone.");
+    expect(page).toContain("Support this campaign");
     expect(page.match(/href=\{`\/donate-phone\?campaign=/g)?.length).toBeGreaterThanOrEqual(3);
     expect(page).toContain("We never ask for your phone passcode.");
   });

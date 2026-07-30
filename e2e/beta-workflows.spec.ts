@@ -38,7 +38,8 @@ test.describe("deterministic beta browser workflows", () => {
     await page.getByRole("button", { name: /See my estimate/i }).click();
     await page.getByRole("button", { name: /Continue to charity/i }).click();
     await page.getByText("You're supporting Community Phones Foundation.").waitFor();
-    await expect(page.getByText("Choose a different charity")).toBeVisible();
+    await expect(page.getByText("Your campaign nonprofit is already selected.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Choose a different charity" })).toBeVisible();
     await page.getByRole("button", { name: "Choose a different charity" }).click();
     await expect(page).not.toHaveURL(/campaign=beta-phone-drive/);
     await expect(page.getByText("You're supporting Community Phones Foundation.")).not.toBeVisible();
@@ -118,10 +119,14 @@ test.describe("deterministic beta browser workflows", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
     });
     await page.route("**/api/staff/finance", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ finance: { policyHolds: 0, failedOutbox: 0, openEscalations: 0, allocations: [], disbursements: [] } }) }));
-    await page.route("**/api/staff/campaigns", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ campaigns: { campaigns: [] } }) }));
+    await page.route("**/api/staff/campaigns", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ campaigns: { campaigns: [{ id: "00000000-0000-4000-8000-000000000020", name: "Review fixture", slug: "review-fixture", status: "draft", organizationName: "Fixture Org", charityName: "Community Phones Foundation", revisions: [{ id: "00000000-0000-4000-8000-000000000021", version: 3, status: "draft", headline: "Reviewed headline", summary: "Reviewed summary", contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] }] } }) }));
+    await page.route("**/api/staff/campaigns/00000000-0000-4000-8000-000000000020/revisions/00000000-0000-4000-8000-000000000021/preview", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preview: { campaign: { name: "Review fixture", slug: "review-fixture", status: "draft" }, organization: { name: "Fixture Org" }, charity: { name: "Community Phones Foundation", pledgeId: campaign.charityPledgeId }, differsFromPublished: true, revision: { id: "00000000-0000-4000-8000-000000000021", version: 3, status: "draft", headline: "Reviewed headline", summary: "Reviewed summary", story: "Full reviewed story.", ctaLabel: "Donate a Phone", contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", blocks: [{ type: "callout", content: { heading: "Callout", body: "Reviewed block" } }] } } }) }));
     await page.route("**/api/staff/partners", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ partners: { organizations: [] } }) }));
     await page.goto("/staff");
     await expect(page.getByRole("heading", { name: "Donation management" })).toBeVisible();
+    await page.getByRole("button", { name: "Review exact revision" }).click();
+    await expect(page.getByText("Full reviewed story.")).toBeVisible();
+    await expect(page.getByText(/Full revision hash:/)).toBeVisible();
     await expect(page.getByRole("button", { name: "DBM-E2E-STAFF" })).toBeVisible();
     await page.getByRole("button", { name: "DBM-E2E-STAFF" }).click();
     await expect(page.getByRole("heading", { name: "Receive package" })).toBeVisible();

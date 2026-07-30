@@ -196,6 +196,8 @@ export type Database = {
           asset_kind_value: string
           byte_size_value: number
           candidate_campaign_id: string
+          content_sha256_value: string
+          decorative_value: boolean
           mime_type_value: string
           storage_path_value: string
         }
@@ -218,6 +220,7 @@ export type Database = {
         | {
             Args: {
               actor_user_id: string
+              blocks_value?: Json
               candidate_campaign_id: string
               content_hash_value: string
               cta_value: string
@@ -265,6 +268,18 @@ export type Database = {
       }
       staff_campaign_overview: {
         Args: { actor_user_id: string }
+        Returns: Json
+      }
+      staff_campaign_revision_asset: {
+        Args: { actor_user_id: string; candidate_asset_id: string }
+        Returns: Json
+      }
+      staff_campaign_revision_preview: {
+        Args: {
+          actor_user_id: string
+          candidate_campaign_id: string
+          candidate_revision_id: string
+        }
         Returns: Json
       }
       staff_change_donation_status: {
@@ -925,9 +940,12 @@ export type Database = {
           asset_kind: string
           byte_size: number
           campaign_id: string
+          content_sha256: string | null
           created_at: string
           id: string
+          is_decorative: boolean
           mime_type: string
+          storage_format_version: number
           storage_path: string
           uploaded_by: string
         }
@@ -936,9 +954,12 @@ export type Database = {
           asset_kind: string
           byte_size: number
           campaign_id: string
+          content_sha256?: string | null
           created_at?: string
           id?: string
+          is_decorative?: boolean
           mime_type: string
+          storage_format_version?: number
           storage_path: string
           uploaded_by: string
         }
@@ -947,9 +968,12 @@ export type Database = {
           asset_kind?: string
           byte_size?: number
           campaign_id?: string
+          content_sha256?: string | null
           created_at?: string
           id?: string
+          is_decorative?: boolean
           mime_type?: string
+          storage_format_version?: number
           storage_path?: string
           uploaded_by?: string
         }
@@ -995,15 +1019,52 @@ export type Database = {
           },
         ]
       }
+      campaign_revision_blocks: {
+        Row: {
+          block_order: number
+          block_type: string
+          content: Json
+          created_at: string
+          id: string
+          revision_id: string
+        }
+        Insert: {
+          block_order: number
+          block_type: string
+          content: Json
+          created_at?: string
+          id?: string
+          revision_id: string
+        }
+        Update: {
+          block_order?: number
+          block_type?: string
+          content?: Json
+          created_at?: string
+          id?: string
+          revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_revision_blocks_revision_id_fkey"
+            columns: ["revision_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_revisions: {
         Row: {
           approved_by: string | null
           campaign_id: string
+          content_blocks: Json
           content_hash: string
           created_at: string
           cta_label: string
           headline: string
           hero_asset_id: string | null
+          hero_asset_sha256: string | null
           hero_image_url: string | null
           id: string
           published_at: string | null
@@ -1013,16 +1074,19 @@ export type Database = {
           story: string
           summary: string
           supporting_asset_id: string | null
+          supporting_asset_sha256: string | null
           version: number
         }
         Insert: {
           approved_by?: string | null
           campaign_id: string
+          content_blocks?: Json
           content_hash: string
           created_at?: string
           cta_label?: string
           headline: string
           hero_asset_id?: string | null
+          hero_asset_sha256?: string | null
           hero_image_url?: string | null
           id?: string
           published_at?: string | null
@@ -1032,16 +1096,19 @@ export type Database = {
           story: string
           summary: string
           supporting_asset_id?: string | null
+          supporting_asset_sha256?: string | null
           version: number
         }
         Update: {
           approved_by?: string | null
           campaign_id?: string
+          content_blocks?: Json
           content_hash?: string
           created_at?: string
           cta_label?: string
           headline?: string
           hero_asset_id?: string | null
+          hero_asset_sha256?: string | null
           hero_image_url?: string | null
           id?: string
           published_at?: string | null
@@ -1051,6 +1118,7 @@ export type Database = {
           story?: string
           summary?: string
           supporting_asset_id?: string | null
+          supporting_asset_sha256?: string | null
           version?: number
         }
         Relationships: [
@@ -2736,6 +2804,7 @@ export type Database = {
           reconciliation_snapshot_id: string | null
           reversal_of: string | null
           sale_result_id: string | null
+          settlement_status: string
           share_basis_points: number | null
           status: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -2759,6 +2828,7 @@ export type Database = {
           reconciliation_snapshot_id?: string | null
           reversal_of?: string | null
           sale_result_id?: string | null
+          settlement_status?: string
           share_basis_points?: number | null
           status?: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -2782,6 +2852,7 @@ export type Database = {
           reconciliation_snapshot_id?: string | null
           reversal_of?: string | null
           sale_result_id?: string | null
+          settlement_status?: string
           share_basis_points?: number | null
           status?: Database["app_private"]["Enums"]["allocation_status"]
         }
@@ -3463,6 +3534,10 @@ export type Database = {
           new_status: Database["app_private"]["Enums"]["donation_status"]
           old_status: Database["app_private"]["Enums"]["donation_status"]
         }
+        Returns: boolean
+      }
+      validate_campaign_blocks: {
+        Args: { blocks_value: Json }
         Returns: boolean
       }
     }

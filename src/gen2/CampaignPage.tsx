@@ -120,7 +120,7 @@ export function CampaignPage({ slug }: { slug: string }) {
 
     <section className="campaign-trust" aria-label="Campaign trust signals">
       <div className="campaign-wrap campaign-trust-grid">
-        <span><CheckCircle2 aria-hidden="true" /> Choose the nonprofit you care about</span>
+        <span><CheckCircle2 aria-hidden="true" /> Support the selected nonprofit</span>
         <span><PackageCheck aria-hidden="true" /> Mail with your own packaging and postage</span>
         <span><LockKeyhole aria-hidden="true" /> Documentation follows receipt and verification</span>
       </div>
@@ -138,7 +138,7 @@ export function CampaignPage({ slug }: { slug: string }) {
 
     <section className="campaign-section campaign-choice-section">
       <div className="campaign-wrap campaign-choice-grid">
-        <div><p className="campaign-eyebrow">Make this campaign yours</p><h2>Choose a cause before you send your phone.</h2><p className="campaign-choice-copy">This campaign keeps the important choice in view: when you start your donation, the selected nonprofit is carried with the donation record and shown again in your confirmation.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>Start this donation <ArrowRight aria-hidden="true" /></a></div>
+        <div><p className="campaign-eyebrow">Support this campaign</p><h2>Support {charity?.name || campaign.charityName} with your old phone.</h2><p className="campaign-choice-copy">The campaign nonprofit is already selected. When you start your donation, that beneficiary stays attached to the donation record and appears again in your confirmation.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>Continue to mailing details <ArrowRight aria-hidden="true" /></a></div>
         <aside className="campaign-choice-card"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><p className="campaign-eyebrow">Verified nonprofit</p><h3>{charity?.name || campaign.charityName}</h3><p>Nonprofit details and logo are refreshed from the verified Pledge record before this public page is shown.</p>{website && <a href={website} target="_blank" rel="noreferrer">Learn more about this nonprofit <ExternalLink aria-hidden="true" /></a>}</aside>
       </div>
     </section>
@@ -148,7 +148,7 @@ export function CampaignPage({ slug }: { slug: string }) {
         <div className="campaign-section-heading"><p className="campaign-eyebrow">The simple path</p><h2>Three steps from drawer to donation.</h2><p>Donate by Mail keeps the process clear so you can focus on the cause you chose.</p></div>
         <div className="campaign-steps">
           <article><span>01</span><Smartphone aria-hidden="true" /><h3>Tell us about your phone</h3><p>Share a few basic details about the device you want to donate.</p></article>
-          <article><span>02</span><HeartHandshake aria-hidden="true" /><h3>Choose this campaign</h3><p>Select the nonprofit you want your phone’s recoverable value to support.</p></article>
+          <article><span>02</span><HeartHandshake aria-hidden="true" /><h3>Support this campaign</h3><p>The selected beneficiary stays attached while you complete your donation.</p></article>
           <article><span>03</span><PackageCheck aria-hidden="true" /><h3>Mail it to Donate by Mail</h3><p>Prepare the phone, pay the carrier directly, and send it to our headquarters.</p></article>
         </div>
       </div>

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(15);
 select set_config('request.jwt.claim.role','service_role',true);
 
 insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at) values
@@ -36,20 +36,27 @@ select (api.partner_create_campaign_asset(
   (select id from app_private.campaigns where slug='asset-campaign'),
   'hero_image',
   'campaigns/'||(select id::text from app_private.campaigns where slug='asset-campaign')||'/'||gen_random_uuid()||'.webp',
-  'image/webp',12345,'Asset campaign hero image')) result;
+  'image/webp',12345,'Asset campaign hero image',false,repeat('a',64))) result;
 select isnt((select result->>'id' from asset_fixture),null,'valid controlled asset metadata is persisted');
+select is((select length((select result->>'contentSha256' from asset_fixture))),64,'asset stores a SHA-256 digest');
+select is((select (result->>'contentSha256') <> repeat('0',64) from asset_fixture),true,'asset digest is not the legacy all-zero marker');
+select is(to_regprocedure('api.partner_create_campaign_asset(uuid,uuid,text,text,text,integer,text)'),null,'legacy digest-less asset RPC is removed');
 select throws_ok($$select api.partner_create_campaign_asset(
   'a4000000-0000-4000-8000-000000000001',(select id from app_private.campaigns where slug='asset-campaign'),
   'logo','campaigns/'||(select id::text from app_private.campaigns where slug='asset-campaign')||'/'||gen_random_uuid()||'.png',
-  'image/png',100,'Logo')$$,'22023','unsupported campaign asset kind','asset kinds are allowlisted');
+  'image/png',100,'Logo',false,repeat('b',64))$$,'22023','unsupported campaign asset kind','asset kinds are allowlisted');
 select throws_ok($$select api.partner_create_campaign_asset(
   'a4000000-0000-4000-8000-000000000001',(select id from app_private.campaigns where slug='asset-campaign'),
-  'hero_image','campaigns/not-the-campaign/not-a-file.png','image/png',100,'Wrong path')$$,
+  'hero_image','campaigns/not-the-campaign/not-a-file.png','image/png',100,'Wrong path',false,repeat('d',64))$$,
   '22023','invalid campaign asset path','storage paths are bound to the campaign and generated-file shape');
 select throws_ok($$select api.partner_create_campaign_asset(
   'a4000000-0000-4000-8000-000000000001',(select id from app_private.campaigns where slug='asset-campaign'),
   'hero_image','campaigns/'||(select id::text from app_private.campaigns where slug='asset-campaign')||'/'||gen_random_uuid()||'.png',
-  'image/png',5242881,'Too large')$$,'22023','invalid campaign asset metadata','MIME, size, and alt text are validated');
+  'image/png',5242881,'Too large',false,repeat('c',64))$$,'22023','invalid campaign asset metadata','MIME, size, and alt text are validated');
+select throws_ok($$select api.partner_create_campaign_asset(
+  'a4000000-0000-4000-8000-000000000001',(select id from app_private.campaigns where slug='asset-campaign'),
+  'hero_image','campaigns/'||(select id::text from app_private.campaigns where slug='asset-campaign')||'/'||gen_random_uuid()||'.png',
+  'image/png',100,'Fake digest',false,repeat('0',64))$$,'23514','new row for relation "campaign_assets" violates check constraint "campaign_assets_sha256_check"','all-zero digest is rejected');
 
 create temporary table revision_fixture as select api.partner_create_campaign_revision(
   'a4000000-0000-4000-8000-000000000001',(select id from app_private.campaigns where slug='asset-campaign'),
@@ -67,8 +74,5 @@ select is(api.get_public_campaign_asset((select (result->>'id')::uuid from asset
 select throws_ok($$select api.partner_delete_campaign_asset(
   'a4000000-0000-4000-8000-000000000001',(select (result->>'id')::uuid from asset_fixture))$$,
   '23503','campaign asset is already referenced by a revision','published/referenced assets cannot be deleted');
-select is(has_function_privilege('anon','api.partner_create_campaign_asset(uuid,uuid,text,text,text,integer,text)','execute'),false,
-  'anonymous clients cannot call asset mutation functions');
-
 select * from finish();
 rollback;

@@ -892,11 +892,10 @@ function CharitySelector({
       <div className="charity-copy">
         <p className="kicker">Charity selection</p>
         <h2 id="charity-heading">
-          Choose the charity that your donation supports.
+          {campaignLocked ? "Your campaign nonprofit is already selected." : "Choose the charity that your donation supports."}
         </h2>
         <p>
-          Search for a nonprofit and select the organization you would like your
-          phone donation to support.
+          {campaignLocked ? "Continue with the selected beneficiary, or choose a different charity to leave this campaign." : "Search for a nonprofit and select the organization you would like your phone donation to support."}
         </p>
         <p className="charity-clarification">
           The final amount available to support the selected charity will depend
@@ -1073,8 +1072,11 @@ function DonationPage() {
       try {
         const d = parseDonationDraft<Device, SelectedCharity>(saved);
         if (d.devices?.length) setDevices(d.devices);
-        if (d.selectedCharity) setSelectedCharity(d.selectedCharity);
-        if (d.step) setStep(Math.min(3, Math.max(1, d.step)));
+        // A campaign handoff owns the beneficiary.  Restoring a normal draft
+        // may restore device details and progress, never overwrite that
+        // verified campaign selection or attribution.
+        if (d.selectedCharity && !campaignSlug) setSelectedCharity(d.selectedCharity);
+        if (d.step && (!campaignSlug || selectedCharity)) setStep(Math.min(3, Math.max(1, d.step)));
       } catch {
         localStorage.removeItem("donate-by-mail-draft");
       }
@@ -1317,10 +1319,8 @@ function DonationPage() {
             <section className="flow-card">
               <div className="flow-heading">
                 <p className="kicker">Charity and donor details</p>
-                <h1>Choose a charity and create your mailing documents.</h1>
-                <p>
-                  Your selected charity stays attached to this donation packet.
-                </p>
+                <h1>{campaignSlug && selectedCharity ? `Support ${selectedCharity.name} and create your mailing documents.` : "Choose a charity and create your mailing documents."}</h1>
+                <p>{campaignSlug && selectedCharity ? "Your campaign nonprofit is already selected and stays attached to this donation packet." : "Your selected charity stays attached to this donation packet."}</p>
               </div>
               <form onSubmit={submit}>
                 {campaignLoading && <p className="widget-status" role="status">Loading the campaign nonprofit…</p>}

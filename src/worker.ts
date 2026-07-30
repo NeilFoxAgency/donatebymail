@@ -31,6 +31,8 @@ type WorkerEnv = Env & {
   DONATION_TRACKING_SECRET?: string;
   AGENT_API_KEY?: string;
   BFF_SESSION_SECRET?: string;
+  /** Test-only override for a deterministic local Brevo-compatible server. */
+  BREVO_API_URL?: string;
 };
 
 type PersistedDonation = {
@@ -218,6 +220,22 @@ function csrfAllowed(request: Request): boolean {
   return Boolean(session && sameOrigin(request) && constantTimeEqual(request.headers.get("x-csrf-token"), session.csrf));
 }
 
+type PreviewAsset = { storagePath?: string; contentSha256?: string };
+type RevisionPreview = { revision?: { heroAsset?: PreviewAsset | null; supportingAsset?: PreviewAsset | null } };
+
+/** Verify the bytes in private Storage at the human approval boundary. */
+export async function verifyCampaignRevisionAssets(env: WorkerEnv, preview: RevisionPreview): Promise<void> {
+  for (const asset of [preview.revision?.heroAsset, preview.revision?.supportingAsset]) {
+    if (!asset) continue;
+    if (!asset.storagePath || !asset.contentSha256 || !/^[a-f0-9]{64}$/.test(asset.contentSha256))
+      throw new Error("campaign_asset_digest_missing");
+    const response = await getCampaignAssetObject(env, asset.storagePath);
+    if (!response.ok || !response.body) throw new Error("campaign_asset_missing");
+    const digest = await sha256BytesHex(new Uint8Array(await response.arrayBuffer()));
+    if (digest !== asset.contentSha256) throw new Error("campaign_asset_digest_mismatch");
+  }
+}
+
 async function supabaseUser(request: Request, env: WorkerEnv): Promise<SupabaseUser | null> {
   const user = await authenticatedUser(request, env);
   if (!user) return null;
@@ -304,7 +322,7 @@ async function sendBrevoEmail(
   env: WorkerEnv,
   message: BrevoMessage,
 ): Promise<void> {
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const response = await fetch(env.BREVO_API_URL || "https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -943,6 +961,24 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
   if (request.method === "GET" && url.pathname === "/api/staff/campaigns") {
     return json({ ok: true, campaigns: await supabaseRpc(env, "staff_campaign_overview", { actor_user_id: staff.id }) });
   }
+  const campaignPreview = url.pathname.match(/^\/api\/staff\/campaigns\/([0-9a-f-]{36})\/revisions\/([0-9a-f-]{36})\/preview$/i);
+  if (request.method === "GET" && campaignPreview) {
+    const preview = await supabaseRpc<Record<string, unknown>>(env, "staff_campaign_revision_preview", {
+      actor_user_id: staff.id, candidate_campaign_id: campaignPreview[1], candidate_revision_id: campaignPreview[2],
+    });
+    const verifiedCharity = (preview.charity as Record<string, unknown> | undefined);
+    const pledged = verifiedCharity?.pledgeId ? await lookupOrganization(String(verifiedCharity.pledgeId), env).catch(() => null) : null;
+    return json({ ok: true, preview: pledged ? { ...preview, charity: { ...verifiedCharity, ...pledged } } : preview });
+  }
+  const staffAsset = url.pathname.match(/^\/api\/staff\/campaign-assets\/([0-9a-f-]{36})$/i);
+  if (request.method === "GET" && staffAsset) {
+    const asset = await supabaseRpc<{ id: string; storagePath: string; mimeType: string }>(env, "staff_campaign_revision_asset", {
+      actor_user_id: staff.id, candidate_asset_id: staffAsset[1],
+    });
+    const stored = await getCampaignAssetObject(env, asset.storagePath);
+    if (!stored.ok || !stored.body) return json({ ok: false, message: "Campaign asset unavailable." }, 404);
+    return new Response(stored.body, { headers: { "cache-control": "private, no-store", "content-type": asset.mimeType, "x-content-type-options": "nosniff" } });
+  }
   if (request.method === "GET" && url.pathname === "/api/staff/partners") {
     return json({ ok: true, partners: await supabaseRpc(env, "staff_partner_overview", { actor_user_id: staff.id }) });
   }
@@ -998,9 +1034,14 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
   }
   if (request.method === "POST" && url.pathname === "/api/staff/campaigns/publish") {
     const body = (await readJson(request, 10_000)) as Record<string, unknown>;
+    const campaignId = stringValue(body.campaignId), revisionId = stringValue(body.revisionId);
+    if (!campaignId || !revisionId) return json({ ok: false, message: "An exact campaign revision is required." }, 400);
+    const preview = await supabaseRpc<Record<string, unknown>>(env, "staff_campaign_revision_preview", {
+      actor_user_id: staff.id, candidate_campaign_id: campaignId, candidate_revision_id: revisionId,
+    });
+    await verifyCampaignRevisionAssets(env, preview);
     return json({ ok: true, result: await supabaseRpc(env, "staff_publish_campaign_revision", {
-      actor_user_id: staff.id, candidate_campaign_id: body.campaignId,
-      candidate_revision_id: body.revisionId,
+      actor_user_id: staff.id, candidate_campaign_id: campaignId, candidate_revision_id: revisionId,
     }) });
   }
   if (request.method === "GET" && url.pathname === "/api/staff/donations") {
@@ -1268,7 +1309,7 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
 
 type OutboxEvent = { id: string; handler_key: string; event_type: string; payload: { donationId?: string; invitationId?: string } };
 
-async function processOutbox(env: WorkerEnv): Promise<void> {
+export async function processOutbox(env: WorkerEnv): Promise<void> {
   if (!betaDataConfigured(env)) return;
   const workerId = `scheduled-${crypto.randomUUID()}`;
   const events = await supabaseRpc<OutboxEvent[]>(env, "claim_outbox_events", {
