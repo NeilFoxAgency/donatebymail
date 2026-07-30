@@ -13,6 +13,8 @@ type Campaign = {
   ctaLabel: string;
   heroAssetId?: string | null;
   heroImageUrl?: string | null;
+  supportingAssetId?: string | null;
+  supportingImageUrl?: string | null;
   revision?: number;
 };
 
@@ -81,6 +83,7 @@ export function CampaignPage({ slug }: { slug: string }) {
 
   const paragraphs = useMemo(() => campaign?.story.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean) || [], [campaign?.story]);
   const heroImage = safeImageUrl(campaign?.heroImageUrl);
+  const supportingImage = safeImageUrl(campaign?.supportingImageUrl);
   const website = safeWebsiteUrl(charity?.websiteUrl);
   const location = [charity?.city, charity?.state, charity?.country].filter(Boolean).join(", ");
   const betaOnly = campaign?.slug.startsWith("beta-");
@@ -124,7 +127,14 @@ export function CampaignPage({ slug }: { slug: string }) {
           <p className="campaign-eyebrow">About this campaign</p>
           <h2>A small device can carry a meaningful next chapter.</h2>
         </div>
-        <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}</div>
+        <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}{supportingImage && <figure className="campaign-supporting-figure"><img src={supportingImage} alt={`${campaign.name} story`} /><figcaption>{campaign.name}</figcaption></figure>}</div>
+      </div>
+    </section>
+
+    <section className="campaign-section campaign-choice-section">
+      <div className="campaign-wrap campaign-choice-grid">
+        <div><p className="campaign-eyebrow">Make this campaign yours</p><h2>Choose a cause before you send your phone.</h2><p className="campaign-choice-copy">This campaign keeps the important choice in view: when you start your donation, the selected nonprofit is carried with the donation record and shown again in your confirmation.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>Start this donation <ArrowRight aria-hidden="true" /></a></div>
+        <aside className="campaign-choice-card"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><p className="campaign-eyebrow">Verified nonprofit</p><h3>{charity?.name || campaign.charityName}</h3><p>Nonprofit details and logo are refreshed from the verified Pledge record before this public page is shown.</p>{website && <a href={website} target="_blank" rel="noreferrer">Learn more about this nonprofit <ExternalLink aria-hidden="true" /></a>}</aside>
       </div>
     </section>
 

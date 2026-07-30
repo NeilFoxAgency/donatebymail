@@ -721,11 +721,15 @@ async function sendMagicLink(request: Request, env: WorkerEnv, destination: "/st
     }});
     const callback = new URL("/api/auth/callback", new URL(request.url).origin);
     callback.searchParams.set("state", state);
+    const allowInvitedPartnerSignup = destination === "/partner"
+      && await supabaseRpc<boolean>(env, "is_invited_partner_email", { candidate_email: email });
     const { error } = await client.auth.signInWithOtp({ email, options: {
       emailRedirectTo: callback.toString(),
       // Donor accounts may be created from the public gateway. Partner and
-      // staff access must remain invitation/allowlist controlled.
-      shouldCreateUser: destination === "/account" && !staffOnly,
+      // staff access must remain invitation/allowlist controlled. A pending
+      // partner invitation is the only exception: it bootstraps the invited
+      // identity so the invitation can be accepted on first sign-in.
+      shouldCreateUser: (destination === "/account" && !staffOnly) || allowInvitedPartnerSignup,
     }});
     if (error) return generic;
     await supabaseRpc(env, "create_auth_login_attempt", {
@@ -1125,7 +1129,7 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     const fileValue = form.get("file");
     const altText = stringValue(form.get("altText"));
     const assetKind = stringValue(form.get("assetKind")) || "hero_image";
-    if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || !altText) {
+    if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || !["hero_image", "supporting_image"].includes(assetKind) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || !altText) {
       return json({ ok: false, message: "Upload a JPG, PNG, or WebP image under 5 MB with descriptive alt text." }, 400);
     }
     // Verify membership before writing a storage object. The detail RPC is
@@ -1161,11 +1165,12 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   }
   if (request.method === "POST" && campaign) {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
-    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null });
+    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null, supportingAssetId: body.supportingAssetId || null });
     const result = await supabaseRpc(env, "partner_create_campaign_revision", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1], headline_value: body.headline,
       summary_value: body.summary, story_value: body.story, cta_value: body.ctaLabel || "Donate a Phone",
-      hero_asset_value: body.heroAssetId || null, content_hash_value: await sha256Hex(canonical),
+      hero_asset_value: body.heroAssetId || null, supporting_asset_value: body.supportingAssetId || null,
+      content_hash_value: await sha256Hex(canonical),
     });
     return json({ ok: true, result }, 201);
   }

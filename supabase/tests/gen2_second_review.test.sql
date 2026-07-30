@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(22);
+select plan(24);
 select set_config('request.jwt.claim.role','service_role',true);
 
 insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at) values
@@ -41,7 +41,9 @@ select lives_ok(format($$select api.staff_associate_partner_charity('a1000000-00
   (select result->>'organizationId' from org_fixture),(select result->>'charityId' from charity_fixture)),'staff associates a verified canonical charity');
 select lives_ok(format($$select api.staff_invite_partner_admin('a1000000-0000-4000-8000-000000000003',%L::uuid,'partner-review@example.com')$$,
   (select result->>'organizationId' from org_fixture)),'staff creates an audited passwordless partner-admin invitation');
+select is(api.is_invited_partner_email('partner-review@example.com'),true,'pending invitation may bootstrap its invited auth identity');
 select is(api.activate_partner_invitations('a1000000-0000-4000-8000-000000000004','partner-review@example.com'),1,'matching verified partner accepts invitation');
+select is(api.is_invited_partner_email('partner-review@example.com'),false,'accepted invitation is no longer eligible for bootstrap');
 select is((select role::text from app_private.organization_memberships where user_id='a1000000-0000-4000-8000-000000000004'),'partner_admin','invitation grants only its intended organization role');
 select is(jsonb_array_length(api.partner_overview('a1000000-0000-4000-8000-000000000004')->'organizations'),1,'partner sees only assigned organization');
 select lives_ok(format($$select api.staff_set_partner_member_status('a1000000-0000-4000-8000-000000000003',%L::uuid,

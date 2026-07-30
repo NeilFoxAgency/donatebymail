@@ -4,7 +4,7 @@ import { authenticatedApi, authenticatedUpload, logout, publicApi, sessionStatus
 type Campaign = { id: string; slug: string; name: string; status: string; charityName: string };
 type VerifiedCharity = { id: string; name: string; pledgeId: string };
 type Organization = { id: string; name: string; role: string; campaigns: Campaign[]; verifiedCharities: VerifiedCharity[] };
-type Revision = { id: string; version: number; status: string; headline: string; summary: string; story: string; ctaLabel: string; heroAssetId?: string };
+type Revision = { id: string; version: number; status: string; headline: string; summary: string; story: string; ctaLabel: string; heroAssetId?: string; supportingAssetId?: string };
 type CampaignDetail = Campaign & { revisions: Revision[] };
 export function PartnerPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -63,27 +63,28 @@ export function PartnerPage() {
 function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved: () => Promise<void> }) {
   const latest = campaign.revisions[0];
   const [heroAssetId, setHeroAssetId] = useState(latest?.heroAssetId || "");
+  const [supportingAssetId, setSupportingAssetId] = useState(latest?.supportingAssetId || "");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
-  useEffect(() => { setHeroAssetId(latest?.heroAssetId || ""); setUploadMessage(""); }, [latest?.id, latest?.heroAssetId]);
+  useEffect(() => { setHeroAssetId(latest?.heroAssetId || ""); setSupportingAssetId(latest?.supportingAssetId || ""); setUploadMessage(""); }, [latest?.id, latest?.heroAssetId, latest?.supportingAssetId]);
   if (!latest) return null;
-  async function uploadHero(file: File) {
+  async function uploadImage(file: File, assetKind: "hero_image" | "supporting_image") {
     setUploading(true); setUploadMessage("");
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("assetKind", "hero_image");
-      form.append("altText", `${campaign.name} campaign image`);
+      form.append("assetKind", assetKind);
+      form.append("altText", `${campaign.name} ${assetKind === "hero_image" ? "hero" : "story"} image`);
       const body = await authenticatedUpload(`/api/partner/campaigns/${campaign.id}/assets`, form);
-      setHeroAssetId(body.asset.id);
-      setUploadMessage("Image uploaded. Save this revision to send it for staff review.");
+      if (assetKind === "hero_image") setHeroAssetId(body.asset.id); else setSupportingAssetId(body.asset.id);
+      setUploadMessage(`${assetKind === "hero_image" ? "Hero" : "Story"} image uploaded. Save this revision to send it for staff review.`);
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : "The image could not be uploaded.");
     } finally { setUploading(false); }
   }
   return <form className="campaign-editor" key={`${campaign.id}-${latest.version}`} onSubmit={async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const values = new FormData(event.currentTarget);
-    const payload = { ...Object.fromEntries(values), heroAssetId: heroAssetId || null };
+    const payload = { ...Object.fromEntries(values), heroAssetId: heroAssetId || null, supportingAssetId: supportingAssetId || null };
     await authenticatedApi(`/api/partner/campaigns/${campaign.id}`, {
       method: "POST", body: JSON.stringify(payload),
     });
@@ -95,9 +96,10 @@ function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved
     <label>Short summary<textarea name="summary" defaultValue={latest.summary} required maxLength={600} /></label>
     <label>Campaign story<textarea name="story" defaultValue={latest.story} required maxLength={12000} rows={8} /></label>
     <div className="form-grid"><label>Button label<input name="ctaLabel" defaultValue={latest.ctaLabel} required maxLength={80} /></label></div>
-    <label>Hero image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadHero(file); }} /></label>
-    <p><small>Use a clear JPG, PNG, or WebP under 5 MB. Images are stored privately, served only from the published campaign, and reviewed by Donate by Mail staff before publication.</small></p>
+    <div className="form-grid campaign-image-fields"><label>Hero image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "hero_image"); }} /></label><label>Story image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "supporting_image"); }} /></label></div>
+    <p><small>Use clear JPG, PNG, or WebP images under 5 MB. Images are stored privately, served only from the published campaign, and reviewed by Donate by Mail staff before publication.</small></p>
     {heroAssetId && <p className="status-pill">A reviewed hero image is attached to this revision.</p>}
+    {supportingAssetId && <p className="status-pill">A reviewed story image is attached to this revision.</p>}
     {uploadMessage && <p role="status">{uploadMessage}</p>}
     <button>Save new revision</button>
   </form>;
