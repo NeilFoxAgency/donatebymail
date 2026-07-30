@@ -170,10 +170,11 @@ street address stay in the private workspace rather than routine email.
 
 The beta is a synthetic-data-only test environment, not a public beta approved
 for real donor data. Cloudflare Access is the required perimeter, with named
-human identities and a separate service-token policy for automation. Until an
-unauthenticated challenge and both authorized paths are verified, beta must be
-treated as public. Turnstile remains absent so authorized automation can test
-the flow. Anonymous donation and passwordless-email endpoints use server-side,
+human identities and a separate service-token policy for automation. The
+unauthenticated challenge, authorized one-time-PIN path, service-token path,
+logout, and production non-interference were verified on July 29, 2026.
+Turnstile remains absent so authorized automation can test the flow. Anonymous
+donation and passwordless-email endpoints use server-side,
 privacy-preserving IP-bucket rate limits, generic authentication responses,
 bounded payloads, and idempotent email delivery. Production cutover still
 requires server-verified Turnstile and a separate review.

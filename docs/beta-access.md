@@ -4,26 +4,34 @@
 the required beta-only perimeter; it must never cover `donatebymail.org` or the
 production Worker route.
 
-## Remaining account activation
+## Active configuration
 
-The Cloudflare account currently stops at **Activate Zero Trust Free**. The
-account owner must review and accept Cloudflare's terms and authorization for
-charges above the free allowance. Codex did not accept financial terms or
-authorize card charges.
+The account owner activated Zero Trust Free. The active boundary is:
 
-After activation:
+- Self-hosted application: `Donate by Mail beta`
+- Exact destination: `beta.donatebymail.org` with no wildcard or path bypass
+- Human policy: **Allow Donate by Mail beta staff**, restricted to
+  `tre@donatebymail.org`
+- Human login method: one-time PIN
+- Automation policy: **Service auth for beta smoke**, restricted to the
+  `donatebymail-beta-smoke` service token
+- Repository secrets: `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`
+- Token expiration: July 29, 2027
 
-1. Open **Access > Applications** and add a self-hosted application named
-   `Donate by Mail beta` for exactly `beta.donatebymail.org` (no wildcard).
-2. Add an **Allow** policy for explicitly approved testers, initially
-   `tre@donatebymail.org`, using one-time PIN or the configured Google IdP.
-3. Create a service token named `donatebymail-beta-smoke` and a separate
-   **Service Auth** policy that includes only that token.
-4. Store its values only as Actions secrets `CF_ACCESS_CLIENT_ID` and
-   `CF_ACCESS_CLIENT_SECRET`; never source, logs, Vite variables, or Supabase.
-5. Verify a private-window request is challenged, an authorized tester can
-   complete both Access and the Supabase callback, `npm run smoke:beta` passes,
-   and the production hostname remains unaffected.
+## Verified behavior
 
-An application record alone is not proof of protection. The challenge, human
-path, service-token path, and production non-interference require live checks.
+On July 29, 2026:
+
+- An anonymous beta request redirected to the Cloudflare Access challenge.
+- The repository's `npm run smoke:beta` received HTTP 200 with the service
+  token and verified the Donate by Mail application body.
+- `tre@donatebymail.org` completed one-time-PIN authentication and received the
+  beta homepage.
+- The Access logout endpoint cleared the human session; the next beta request
+  was challenged again.
+- `https://donatebymail.org/` continued to return HTTP 200 without an Access
+  redirect.
+
+Rotate the service token before expiration, update both Actions secrets, and
+rerun `npm run smoke:beta`. Never store token values in source, logs, Vite
+variables, Supabase, or documentation.
