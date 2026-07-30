@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:db": "supabase test db --local",
     "typecheck": "tsc --noEmit",
     "build": "npm run test && vite build",
@@ -38,6 +39,7 @@
     "@rollup/rollup-linux-x64-gnu": "^4.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

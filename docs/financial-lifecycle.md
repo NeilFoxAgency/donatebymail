@@ -52,3 +52,10 @@ sales.
 The staff dashboard disables new financial/device controls after finalization,
 shows the revision and effective allocation, and provides reason-required
 reverse/reopen controls only while a payout is not completed.
+
+An allocation with a calculated zero amount is explicitly marked
+`settlement_status = no_proceeds`. Staff sees that no disbursement is required,
+and payment preparation is not offered. This is distinct from a `policy_hold`
+(no approved policy) or a pending positive payout. Financial finalization
+freezes financial evidence, while a later `processing -> completed`
+donor-visible transition remains valid because it does not change that evidence.

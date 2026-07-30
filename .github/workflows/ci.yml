@@ -27,6 +27,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npx wrangler deploy --env beta --dry-run
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       - name: Access-protected beta smoke
         if: env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != ''
         run: npm run smoke:beta

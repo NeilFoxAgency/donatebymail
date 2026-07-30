@@ -15,6 +15,11 @@ type Campaign = {
   heroImageUrl?: string | null;
   supportingAssetId?: string | null;
   supportingImageUrl?: string | null;
+  heroAltText?: string | null;
+  heroDecorative?: boolean;
+  supportingAltText?: string | null;
+  supportingDecorative?: boolean;
+  blocks?: Array<{ type: "text" | "callout" | "statistic" | "quote"; content: Record<string, string> }>;
   revision?: number;
 };
 
@@ -104,7 +109,7 @@ export function CampaignPage({ slug }: { slug: string }) {
           <p className="campaign-reassurance"><LockKeyhole aria-hidden="true" /> We never ask for your phone passcode.</p>
         </div>
         <div className="campaign-hero-visual">
-          {heroImage ? <img className="campaign-hero-image" src={heroImage} alt={`${campaign.name} campaign`} /> : <div className="campaign-phone-mark" aria-hidden="true"><Smartphone /></div>}
+          {heroImage ? (campaign.heroDecorative ? <img className="campaign-hero-image" src={heroImage} alt="" aria-hidden="true" /> : <img className="campaign-hero-image" src={heroImage} alt={campaign.heroAltText || `${campaign.name} campaign`} />) : <div className="campaign-phone-mark" aria-hidden="true"><Smartphone /></div>}
           <div className="campaign-support-card">
             <CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} />
             <div><span>Supporting</span><strong>{charity?.name || campaign.charityName}</strong>{location && <small>{location}</small>}</div>
@@ -127,7 +132,7 @@ export function CampaignPage({ slug }: { slug: string }) {
           <p className="campaign-eyebrow">About this campaign</p>
           <h2>A small device can carry a meaningful next chapter.</h2>
         </div>
-        <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}{supportingImage && <figure className="campaign-supporting-figure"><img src={supportingImage} alt={`${campaign.name} story`} /><figcaption>{campaign.name}</figcaption></figure>}</div>
+        <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}{campaign.blocks?.map((block, index) => <article className={`campaign-block campaign-block-${block.type}`} key={`${block.type}-${index}`}><p className="campaign-eyebrow">{block.type === "statistic" ? "Impact" : block.type === "quote" ? "A partner's perspective" : "Campaign note"}</p>{block.content.heading && <h3>{block.content.heading}</h3>}{block.content.body && <p>{block.content.body}</p>}{block.content.value && <strong>{block.content.value}</strong>}</article>)}{supportingImage && <figure className="campaign-supporting-figure">{campaign.supportingDecorative ? <img src={supportingImage} alt="" aria-hidden="true" /> : <img src={supportingImage} alt={campaign.supportingAltText || `${campaign.name} story`} />}<figcaption>{campaign.name}</figcaption></figure>}</div>
       </div>
     </section>
 

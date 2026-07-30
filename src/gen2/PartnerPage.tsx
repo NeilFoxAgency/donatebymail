@@ -4,7 +4,8 @@ import { authenticatedApi, authenticatedUpload, logout, publicApi, sessionStatus
 type Campaign = { id: string; slug: string; name: string; status: string; charityName: string };
 type VerifiedCharity = { id: string; name: string; pledgeId: string };
 type Organization = { id: string; name: string; role: string; campaigns: Campaign[]; verifiedCharities: VerifiedCharity[] };
-type Revision = { id: string; version: number; status: string; headline: string; summary: string; story: string; ctaLabel: string; heroAssetId?: string; supportingAssetId?: string };
+type CampaignBlock = { type: "text" | "callout" | "statistic" | "quote"; content: { heading?: string; body?: string; value?: string } };
+type Revision = { id: string; version: number; status: string; headline: string; summary: string; story: string; ctaLabel: string; heroAssetId?: string; supportingAssetId?: string; heroAltText?: string; heroDecorative?: boolean; supportingAltText?: string; supportingDecorative?: boolean; blocks?: CampaignBlock[] };
 type CampaignDetail = Campaign & { revisions: Revision[] };
 export function PartnerPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -64,9 +65,14 @@ function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved
   const latest = campaign.revisions[0];
   const [heroAssetId, setHeroAssetId] = useState(latest?.heroAssetId || "");
   const [supportingAssetId, setSupportingAssetId] = useState(latest?.supportingAssetId || "");
+  const [heroAltText, setHeroAltText] = useState(latest?.heroAltText || "");
+  const [supportingAltText, setSupportingAltText] = useState(latest?.supportingAltText || "");
+  const [heroDecorative, setHeroDecorative] = useState(Boolean(latest?.heroDecorative));
+  const [supportingDecorative, setSupportingDecorative] = useState(Boolean(latest?.supportingDecorative));
+  const [blocks, setBlocks] = useState<CampaignBlock[]>(latest?.blocks || []);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
-  useEffect(() => { setHeroAssetId(latest?.heroAssetId || ""); setSupportingAssetId(latest?.supportingAssetId || ""); setUploadMessage(""); }, [latest?.id, latest?.heroAssetId, latest?.supportingAssetId]);
+  useEffect(() => { setHeroAssetId(latest?.heroAssetId || ""); setSupportingAssetId(latest?.supportingAssetId || ""); setHeroAltText(latest?.heroAltText || ""); setSupportingAltText(latest?.supportingAltText || ""); setHeroDecorative(Boolean(latest?.heroDecorative)); setSupportingDecorative(Boolean(latest?.supportingDecorative)); setBlocks(latest?.blocks || []); setUploadMessage(""); }, [latest?.id, latest?.heroAssetId, latest?.supportingAssetId]);
   if (!latest) return null;
   async function uploadImage(file: File, assetKind: "hero_image" | "supporting_image") {
     setUploading(true); setUploadMessage("");
@@ -74,7 +80,9 @@ function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved
       const form = new FormData();
       form.append("file", file);
       form.append("assetKind", assetKind);
-      form.append("altText", `${campaign.name} ${assetKind === "hero_image" ? "hero" : "story"} image`);
+      const decorative = assetKind === "hero_image" ? heroDecorative : supportingDecorative;
+      form.append("altText", assetKind === "hero_image" ? heroAltText : supportingAltText);
+      form.append("decorative", String(decorative));
       const body = await authenticatedUpload(`/api/partner/campaigns/${campaign.id}/assets`, form);
       if (assetKind === "hero_image") setHeroAssetId(body.asset.id); else setSupportingAssetId(body.asset.id);
       setUploadMessage(`${assetKind === "hero_image" ? "Hero" : "Story"} image uploaded. Save this revision to send it for staff review.`);
@@ -84,7 +92,7 @@ function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved
   }
   return <form className="campaign-editor" key={`${campaign.id}-${latest.version}`} onSubmit={async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const values = new FormData(event.currentTarget);
-    const payload = { ...Object.fromEntries(values), heroAssetId: heroAssetId || null, supportingAssetId: supportingAssetId || null };
+    const payload = { ...Object.fromEntries(values), heroAssetId: heroAssetId || null, supportingAssetId: supportingAssetId || null, blocks };
     await authenticatedApi(`/api/partner/campaigns/${campaign.id}`, {
       method: "POST", body: JSON.stringify(payload),
     });
@@ -96,7 +104,8 @@ function RevisionForm({ campaign, onSaved }: { campaign: CampaignDetail; onSaved
     <label>Short summary<textarea name="summary" defaultValue={latest.summary} required maxLength={600} /></label>
     <label>Campaign story<textarea name="story" defaultValue={latest.story} required maxLength={12000} rows={8} /></label>
     <div className="form-grid"><label>Button label<input name="ctaLabel" defaultValue={latest.ctaLabel} required maxLength={80} /></label></div>
-    <div className="form-grid campaign-image-fields"><label>Hero image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "hero_image"); }} /></label><label>Story image (optional)<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "supporting_image"); }} /></label></div>
+    <div className="form-grid campaign-image-fields"><fieldset><legend>Hero image (optional)</legend><input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "hero_image"); }} /><label>Alt text<input value={heroAltText} onChange={(event) => setHeroAltText(event.target.value)} placeholder="Describe what this image shows" disabled={heroDecorative} /></label><label className="check"><input type="checkbox" checked={heroDecorative} onChange={(event) => setHeroDecorative(event.target.checked)} />Decorative image (no alt text)</label></fieldset><fieldset><legend>Story image (optional)</legend><input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadImage(file, "supporting_image"); }} /><label>Alt text<input value={supportingAltText} onChange={(event) => setSupportingAltText(event.target.value)} placeholder="Describe what this image shows" disabled={supportingDecorative} /></label><label className="check"><input type="checkbox" checked={supportingDecorative} onChange={(event) => setSupportingDecorative(event.target.checked)} />Decorative image (no alt text)</label></fieldset></div>
+    <fieldset><legend>Story blocks</legend><p><small>Add short structured sections to help supporters understand the drive. HTML, scripts, embeds, and external URLs are not allowed.</small></p>{blocks.map((block, index) => <div className="account-card" key={`${block.type}-${index}`}><label>Type<select value={block.type} onChange={(event) => setBlocks((current) => current.map((item, i) => i === index ? { ...item, type: event.target.value as CampaignBlock["type"] } : item))}><option value="text">Text</option><option value="callout">Callout</option><option value="statistic">Impact statistic</option><option value="quote">Quote</option></select></label><label>Heading<input value={block.content.heading || ""} onChange={(event) => setBlocks((current) => current.map((item, i) => i === index ? { ...item, content: { ...item.content, heading: event.target.value } } : item))} /></label><label>Body<textarea value={block.content.body || ""} onChange={(event) => setBlocks((current) => current.map((item, i) => i === index ? { ...item, content: { ...item.content, body: event.target.value } } : item))} /></label><label>Value (optional)<input value={block.content.value || ""} onChange={(event) => setBlocks((current) => current.map((item, i) => i === index ? { ...item, content: { ...item.content, value: event.target.value } } : item))} /></label><div className="inline-actions"><button type="button" className="button text" onClick={() => setBlocks((current) => current.filter((_, i) => i !== index))}>Remove</button>{index > 0 && <button type="button" className="button text" onClick={() => setBlocks((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>Move up</button>}{index < blocks.length - 1 && <button type="button" className="button text" onClick={() => setBlocks((current) => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })}>Move down</button>}</div></div>)}{blocks.length < 12 && <button type="button" className="button text" onClick={() => setBlocks((current) => [...current, { type: "text", content: {} }])}>Add block</button>}</fieldset>
     <p><small>Use clear JPG, PNG, or WebP images under 5 MB. Images are stored privately, served only from the published campaign, and reviewed by Donate by Mail staff before publication.</small></p>
     {heroAssetId && <p className="status-pill">A reviewed hero image is attached to this revision.</p>}
     {supportingAssetId && <p className="status-pill">A reviewed story image is attached to this revision.</p>}

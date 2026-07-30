@@ -28,6 +28,21 @@ The beta database is the U.S.-region Supabase project
 will be separate and will receive the same reviewed migrations only after beta
 acceptance.
 
+### Beta migration-history repair
+
+The beta project once recorded three campaign/partner migrations under upload
+timestamps that differed from the filenames later committed to Git. Before
+applying the remediation migration, the linked beta history is repaired with
+Supabase's supported `migration repair --linked --status reverted/applied`
+command, preserving schema and data. The final linked list must match the
+repository filenames exactly; production is never linked for this operation.
+
+Hosted Free-plan Supabase advisors continue to report
+`auth_leaked_password_protection`. That control is Pro-only and this beta uses
+passwordless magic links rather than password authentication. Revisit the
+finding if passwords are introduced or the project plan changes; do not weaken
+the current auth posture to silence it.
+
 ## Trust boundaries
 
 ```text

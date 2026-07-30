@@ -842,11 +842,13 @@ function CharitySelector({
   onChange,
   error,
   revision,
+  campaignLocked = false,
 }: {
   selected: SelectedCharity | null;
   onChange: (charity: SelectedCharity | null) => void;
   error: string;
   revision: number;
+  campaignLocked?: boolean;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
       "loading",
@@ -905,13 +907,13 @@ function CharitySelector({
         <div className="selected-charity" aria-live="polite">
           {selected.logoUrl && <img src={selected.logoUrl} alt="" />}
           <div>
-            <span>Selected charity</span>
+          <span>{campaignLocked ? "You're supporting this campaign's nonprofit" : "Selected charity"}</span>
             <strong>{selected.name}</strong>
             {selected.ein && <small>EIN: {selected.ein}</small>}
             {location !== "Not provided" && <small>{location}</small>}
           </div>
           <button type="button" onClick={change}>
-            Change charity
+            {campaignLocked ? "Choose a different charity" : "Change charity"}
           </button>
         </div>
       ) : (
@@ -957,6 +959,9 @@ function DonationPage() {
     [selectedCharity, setSelectedCharity] = useState<SelectedCharity | null>(
       null,
     ),
+    [campaignSlug, setCampaignSlug] = useState<string | null>(() => new URLSearchParams(window.location.search).get("campaign")),
+    [campaignLoading, setCampaignLoading] = useState(() => Boolean(new URLSearchParams(window.location.search).get("campaign"))),
+    [campaignMessage, setCampaignMessage] = useState(""),
     [charityError, setCharityError] = useState(""),
     [revision, setRevision] = useState(0),
     [record, setRecord] = useState<DonationSubmission | null>(null),
@@ -975,6 +980,27 @@ function DonationPage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
+  useEffect(() => {
+    if (!campaignSlug) { setCampaignLoading(false); return; }
+    let active = true;
+    setCampaignLoading(true); setCampaignMessage("");
+    fetch(`/api/campaigns/${encodeURIComponent(campaignSlug)}`, { headers: { accept: "application/json" } })
+      .then(async (response) => {
+        const body = await response.json() as { campaign?: { charity?: SelectedCharity; charityPledgeId: string; charityName: string }; message?: string };
+        if (!response.ok || !body.campaign) throw new Error(body.message || "This campaign is not available.");
+        const beneficiary = body.campaign.charity || { pledgeId: body.campaign.charityPledgeId, name: body.campaign.charityName };
+        if (!beneficiary.pledgeId || !beneficiary.name) throw new Error("This campaign has no verified nonprofit beneficiary.");
+        if (!active) return;
+        setSelectedCharity(beneficiary); setCampaignMessage(`You're supporting ${beneficiary.name}.`);
+      })
+      .catch((error: Error) => {
+        if (!active) return;
+        setCampaignMessage(error.message); setCampaignSlug(null);
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+      })
+      .finally(() => { if (active) setCampaignLoading(false); });
+    return () => { active = false; };
+  }, [campaignSlug]);
   const totals = useMemo(
       () =>
         devices.reduce(
@@ -1018,6 +1044,14 @@ function DonationPage() {
     },
     updateCharity = (c: SelectedCharity | null) => {
       setSelectedCharity(c);
+      // A campaign handoff notice only describes the verified campaign
+      // beneficiary. Clear it as soon as the donor leaves that context so a
+      // normal charity search cannot appear to retain campaign attribution.
+      setCampaignMessage("");
+      if (!c && campaignSlug) {
+        setCampaignSlug(null);
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+      }
       setCharityError("");
       setRecord(null);
     },
@@ -1056,7 +1090,7 @@ function DonationPage() {
         return;
       }
       const intent = { donor, shippingMethod, devices, charity: selectedCharity,
-        campaignSlug: new URLSearchParams(window.location.search).get("campaign") || undefined };
+        campaignSlug: campaignSlug || undefined };
       const fingerprint = submissionIntentFingerprint(intent);
       submissionAttempt.current = resolveSubmissionAttempt(
         submissionAttempt.current, fingerprint, donor.marketingEmailConsent,
@@ -1074,7 +1108,7 @@ function DonationPage() {
         shippingMethod,
         devices: devices.map((d) => ({ ...d })),
         charity: selectedCharity,
-        campaignSlug: new URLSearchParams(window.location.search).get("campaign") || undefined,
+        campaignSlug: campaignSlug || undefined,
       };
       setSubmitting(true);
       try {
@@ -1289,6 +1323,8 @@ function DonationPage() {
                 </p>
               </div>
               <form onSubmit={submit}>
+                {campaignLoading && <p className="widget-status" role="status">Loading the campaign nonprofit…</p>}
+                {campaignMessage && <p className={campaignSlug ? "plain-notice" : "widget-error"} role={campaignSlug ? "status" : "alert"}>{campaignMessage}</p>}
                 <div
                   ref={charityRef}
                   tabIndex={-1}
@@ -1299,6 +1335,7 @@ function DonationPage() {
                     onChange={updateCharity}
                     error={charityError}
                     revision={revision}
+                    campaignLocked={Boolean(campaignSlug)}
                   />
                 </div>
                 <div className="form-grid donor-grid">

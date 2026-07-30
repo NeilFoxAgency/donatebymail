@@ -5,6 +5,7 @@ type AccountContext = {
   email?: string;
   staff?: boolean;
   donor?: boolean;
+  hasClaimedDonations?: boolean;
   organizations?: Array<{ id: string; name: string; role: string }>;
 };
 
@@ -28,8 +29,11 @@ export function AccountGatewayPage() {
   useEffect(() => {
     if (loading || !context) return;
     const organizations = context.organizations || [];
-    if (context.staff || organizations.length > 1) return;
-    if (organizations.length === 1) window.location.replace("/partner");
+    const hasDonor = Boolean(context.hasClaimedDonations ?? context.donor);
+    const hasMultipleContexts = (Boolean(context.staff) && (hasDonor || organizations.length > 0)) || organizations.length > 1 || (hasDonor && organizations.length > 0);
+    if (hasMultipleContexts) return;
+    if (context.staff) window.location.replace("/staff");
+    else if (organizations.length === 1) window.location.replace("/partner");
     else window.location.replace("/account");
   }, [loading, context]);
   if (loading) return <main className="operations-main"><section className="operations-shell compact"><p role="status">Loading your account options…</p></section></main>;
@@ -64,7 +68,7 @@ function SignedOutGateway() {
 function AccountSwitcher({ context }: { context: AccountContext }) {
   const organizations = context.organizations || [];
   return <main className="operations-main"><section className="operations-shell account-gateway"><div className="staff-heading"><div><p className="kicker">Signed in</p><h1>Choose where you want to go</h1><p>{context.email}</p></div><button className="button text" onClick={() => void logout().then(() => window.location.replace("/login"))}>Log out</button></div>
-    <div className="account-grid"><a className="account-card account-card-link" href="/account"><p className="kicker">Personal</p><h2>My donations</h2><p>Track claimed phone donations and mailing updates.</p></a>
+    <div className="account-grid">{(context.hasClaimedDonations ?? context.donor) && <a className="account-card account-card-link" href="/account"><p className="kicker">Personal</p><h2>My donations</h2><p>Track claimed phone donations and mailing updates.</p></a>}
       {organizations.map((organization) => <a className="account-card account-card-link" href="/partner" key={organization.id}><p className="kicker">Partner</p><h2>{organization.name}</h2><p>Partner dashboard · {organization.role.replace("partner_", "")}</p></a>)}
       {context.staff && <a className="account-card account-card-link" href="/staff"><p className="kicker">Staff</p><h2>Operations</h2><p>Donation, campaign, and partner administration.</p></a>}
     </div>

@@ -232,6 +232,11 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function sha256BytesHex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function safeSecretEqual(actual: string | null, expected?: string): Promise<boolean> {
   if (!actual || !expected) return false;
   const [a, b] = await Promise.all([sha256Hex(actual), sha256Hex(expected)]);
@@ -490,10 +495,6 @@ function normalizeOrganization(
     logoUrl: stringValue(value.logo_url) ?? stringValue(value.logo),
     websiteUrl: stringValue(value.website_url) ?? stringValue(value.website),
   };
-}
-
-function comparableCharityName(value: unknown): string {
-  return stringValue(value)?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() || "";
 }
 
 async function lookupOrganization(
@@ -1128,8 +1129,13 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     const form = await request.formData();
     const fileValue = form.get("file");
     const altText = stringValue(form.get("altText"));
+    const decorative = form.get("decorative") === "true";
     const assetKind = stringValue(form.get("assetKind")) || "hero_image";
-    if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || !["hero_image", "supporting_image"].includes(assetKind) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || !altText) {
+    const bytes = fileValue instanceof File ? new Uint8Array(await fileValue.arrayBuffer()) : null;
+    const validSignature = bytes && ((fileValue as File).type === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      || (fileValue as File).type === "image/png" && bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137,80,78,71,13,10,26,10][index])
+      || (fileValue as File).type === "image/webp" && bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP");
+    if (!(fileValue instanceof File) || !CAMPAIGN_ASSET_MIME_TYPES.has(fileValue.type) || !["hero_image", "supporting_image"].includes(assetKind) || fileValue.size < 1 || fileValue.size > CAMPAIGN_ASSET_MAX_BYTES || (!decorative && !altText) || !validSignature || !bytes) {
       return json({ ok: false, message: "Upload a JPG, PNG, or WebP image under 5 MB with descriptive alt text." }, 400);
     }
     // Verify membership before writing a storage object. The detail RPC is
@@ -1140,7 +1146,8 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
     const asset = await supabaseRpc<{ id: string }>(env, "partner_create_campaign_asset", {
       actor_user_id: user.id, candidate_campaign_id: campaignAsset[1], asset_kind_value: assetKind,
       storage_path_value: storagePath, mime_type_value: fileValue.type, byte_size_value: fileValue.size,
-      alt_text_value: altText,
+      alt_text_value: altText || null, decorative_value: decorative,
+      content_sha256_value: await sha256BytesHex(bytes),
     });
     try {
       await uploadCampaignAsset(env, storagePath, fileValue);
@@ -1165,12 +1172,13 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   }
   if (request.method === "POST" && campaign) {
     const body = (await readJson(request, 30_000)) as Record<string, unknown>;
-    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null, supportingAssetId: body.supportingAssetId || null });
+    const blocks = Array.isArray(body.blocks) ? body.blocks : [];
+    const canonical = JSON.stringify({ headline: body.headline, summary: body.summary, story: body.story, ctaLabel: body.ctaLabel, heroAssetId: body.heroAssetId || null, supportingAssetId: body.supportingAssetId || null, blocks });
     const result = await supabaseRpc(env, "partner_create_campaign_revision", {
       actor_user_id: user.id, candidate_campaign_id: campaign[1], headline_value: body.headline,
       summary_value: body.summary, story_value: body.story, cta_value: body.ctaLabel || "Donate a Phone",
       hero_asset_value: body.heroAssetId || null, supporting_asset_value: body.supportingAssetId || null,
-      content_hash_value: await sha256Hex(canonical),
+      content_hash_value: await sha256Hex(canonical), blocks_value: blocks,
     });
     return json({ ok: true, result }, 201);
   }
@@ -1327,7 +1335,7 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       // Never attach a logo or external metadata to a different nonprofit
       // than the verified campaign beneficiary. Staff must refresh the
       // canonical Pledge association before a logo can appear.
-      const matchingCharity = charity && comparableCharityName(charity.name) === comparableCharityName(campaign.charityName)
+      const matchingCharity = charity && pledgeId && charity.pledgeId.toLowerCase() === pledgeId.toLowerCase()
         ? charity
         : null;
       return json({ ok: true, campaign: matchingCharity ? { ...campaign, charity: matchingCharity } : campaign });

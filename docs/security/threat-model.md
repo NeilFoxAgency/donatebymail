@@ -165,8 +165,12 @@ canonical charity and snapshots its approval requirements.
 Partner roles originate only from audited staff invitations matched to a
 verified passwordless identity. Active membership and an active organization
 are checked together. Agent commands cannot grant roles. Campaign assets are
-disabled until immutable storage, byte validation, digest binding, and a public
-serving route are implemented as one complete control.
+restricted to magic-byte-validated JPEG/PNG/WebP uploads. SHA-256 metadata is
+stored from the actual bytes, partner-entered alt text/decorative state is
+reviewed with the revision, and publication checks that the exact digest still
+matches. Storage upsert/replacement and deletion of referenced assets are
+denied. Campaign customization uses allowlisted structured blocks rather than
+partner HTML, scripts, CSS, embeds, or arbitrary remote URLs.
 
 ### Browser hardening and administrative email
 
