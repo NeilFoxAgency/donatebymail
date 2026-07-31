@@ -420,6 +420,7 @@ export type Database = {
         }
         Returns: Json
       }
+      staff_session_context: { Args: { actor_user_id: string }; Returns: Json }
       staff_set_partner_member_status: {
         Args: {
           actor_user_id: string
@@ -3502,6 +3503,10 @@ export type Database = {
       }
     }
     Functions: {
+      assert_active_admin: {
+        Args: { actor_user_id: string }
+        Returns: undefined
+      }
       assert_active_staff: {
         Args: { actor_user_id: string }
         Returns: undefined

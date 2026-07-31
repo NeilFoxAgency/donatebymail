@@ -45,6 +45,8 @@ type PersistedDonation = {
 
 type TrackingMaterial = { donationId: string; trackingNonce: string; claimNonce?: string };
 type SupabaseUser = { id: string; email?: string };
+export type StaffRole = "staff" | "admin";
+type StaffUser = SupabaseUser & { role: StaffRole };
 type NotificationPayload = {
   donationId: string;
   publicId: string;
@@ -236,13 +238,15 @@ export async function verifyCampaignRevisionAssets(env: WorkerEnv, preview: Revi
   }
 }
 
-async function supabaseUser(request: Request, env: WorkerEnv): Promise<SupabaseUser | null> {
+async function supabaseUser(request: Request, env: WorkerEnv): Promise<StaffUser | null> {
   const user = await authenticatedUser(request, env);
   if (!user) return null;
-  const active = await supabaseRpc<boolean>(env, "is_active_staff_user", {
-    candidate_user_id: user.id,
+  const context = await supabaseRpc<{ active?: boolean; role?: string }>(env, "staff_session_context", {
+    actor_user_id: user.id,
   });
-  return active ? user : null;
+  return context.active && (context.role === "staff" || context.role === "admin")
+    ? { ...user, role: context.role }
+    : null;
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -722,13 +726,36 @@ async function handleTrackingStatus(request: Request, env: WorkerEnv): Promise<R
   }
 }
 
-async function requireStaff(request: Request, env: WorkerEnv): Promise<SupabaseUser | Response> {
+async function requireStaff(request: Request, env: WorkerEnv): Promise<StaffUser | Response> {
   try {
     const user = await supabaseUser(request, env);
     return user ?? json({ ok: false, message: "Staff sign-in is required." }, 401);
   } catch {
     return json({ ok: false, message: "Staff sign-in could not be verified." }, 401);
   }
+}
+
+/** Paths whose mutations are reserved for active administrators. */
+export function isAdminOnlyStaffPath(pathname: string): boolean {
+  return pathname === "/api/staff/campaigns/publish"
+    || pathname === "/api/staff/partners/organizations"
+    || /^\/api\/staff\/partners\/organizations\/[0-9a-f-]{36}\/(charities|invitations|status)$/i.test(pathname)
+    || /^\/api\/staff\/partners\/organizations\/[0-9a-f-]{36}\/members\/[0-9a-f-]{36}\/status$/i.test(pathname)
+    || pathname === "/api/staff/finance/disbursements/prepare"
+    || /^\/api\/staff\/finance\/disbursements\/[0-9a-f-]{36}\/(decision|complete)$/i.test(pathname);
+}
+
+function requireAdmin(staff: StaffUser): StaffUser | Response {
+  return staff.role === "admin"
+    ? staff
+    : json({ ok: false, message: "Administrator access is required for this action." }, 403);
+}
+
+export function authorizeStaffPath(role: StaffRole, pathname: string): Response | null {
+  if (!isAdminOnlyStaffPath(pathname)) return null;
+  const staff = { id: "policy-check", role } satisfies StaffUser;
+  const result = requireAdmin(staff);
+  return result instanceof Response ? result : null;
 }
 
 async function sendMagicLink(request: Request, env: WorkerEnv, destination: "/staff" | "/account" | "/partner", staffOnly = false): Promise<Response> {
@@ -892,8 +919,12 @@ async function handleStaffApi(request: Request, env: WorkerEnv, url: URL): Promi
   if (staff instanceof Response) return staff;
   if (request.method !== "GET" && !csrfAllowed(request))
     return json({ ok: false, message: "Request not allowed." }, 403);
+  if (request.method !== "GET") {
+    const authorization = authorizeStaffPath(staff.role, url.pathname);
+    if (authorization) return authorization;
+  }
   if (request.method === "GET" && url.pathname === "/api/staff/session")
-    return json({ ok: true, user: { id: staff.id } });
+    return json({ ok: true, user: { id: staff.id, role: staff.role } });
   if (request.method === "GET" && url.pathname === "/api/staff/finance") {
     return json({ ok: true, finance: await supabaseRpc(env, "staff_financial_overview", { actor_user_id: staff.id }) });
   }

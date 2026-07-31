@@ -108,7 +108,9 @@ test.describe("deterministic beta browser workflows", () => {
   test("staff workspace searches a donation and records operational facts", async ({ page }) => {
     const donation = { id: "00000000-0000-4000-8000-000000000010", publicId: "DBM-E2E-STAFF", status: "processing", donorName: "Browser Fixture", donorEmail: "browser@example.com", charityName: "Community Phones Foundation", deviceCount: 1 };
     const detail = { ...donation, donor: { name: donation.donorName, email: donation.donorEmail, address1: "1 Test Way", address2: "", city: "Kissimmee", state: "FL", zip: "34741", country: "US" }, charity: { name: donation.charityName }, devices: [{ id: "00000000-0000-4000-8000-000000000011", donor_brand: "Apple", donor_model: "iPhone 13", receipt_status: "pending", inspection_status: "pending", processing_status: "pending", data_wipe_status: "not_started" }], notes: [], events: [], receivedAt: null, packageCondition: null };
-    await page.route("**/api/staff/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ authenticated: true }) }));
+    let staffRole: "staff" | "admin" = "staff";
+    let publishedRequest: Record<string, unknown> | null = null;
+    await page.route("**/api/staff/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, user: { id: "e2e-staff", role: staffRole } }) }));
     await page.route("**/api/auth/csrf", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ csrfToken: "e2e-csrf-token" }) }));
     await page.route("**/api/staff/donations?*", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ donations: [donation] }) }));
     await page.route("**/api/staff/donations/**", async (route) => {
@@ -120,18 +122,31 @@ test.describe("deterministic beta browser workflows", () => {
     });
     await page.route("**/api/staff/finance", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ finance: { policyHolds: 0, failedOutbox: 0, openEscalations: 0, allocations: [], disbursements: [] } }) }));
     await page.route("**/api/staff/campaigns", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ campaigns: { campaigns: [{ id: "00000000-0000-4000-8000-000000000020", name: "Review fixture", slug: "review-fixture", status: "draft", organizationName: "Fixture Org", charityName: "Community Phones Foundation", revisions: [{ id: "00000000-0000-4000-8000-000000000021", version: 3, status: "draft", headline: "Reviewed headline", summary: "Reviewed summary", contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] }] } }) }));
-    await page.route("**/api/staff/campaigns/00000000-0000-4000-8000-000000000020/revisions/00000000-0000-4000-8000-000000000021/preview", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preview: { campaign: { name: "Review fixture", slug: "review-fixture", status: "draft" }, organization: { name: "Fixture Org" }, charity: { name: "Community Phones Foundation", pledgeId: campaign.charityPledgeId }, differsFromPublished: true, revision: { id: "00000000-0000-4000-8000-000000000021", version: 3, status: "draft", headline: "Reviewed headline", summary: "Reviewed summary", story: "Full reviewed story.", ctaLabel: "Donate a Phone", contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", blocks: [{ type: "callout", content: { heading: "Callout", body: "Reviewed block" } }] } } }) }));
+    await page.route("**/api/staff/campaigns/00000000-0000-4000-8000-000000000020/revisions/00000000-0000-4000-8000-000000000021/preview", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preview: { campaign: { id: "00000000-0000-4000-8000-000000000020", name: "Review fixture", slug: "review-fixture", status: "draft" }, organization: { name: "Fixture Org" }, charity: { name: "Community Phones Foundation", pledgeId: campaign.charityPledgeId }, differsFromPublished: true, revision: { id: "00000000-0000-4000-8000-000000000021", version: 3, status: "draft", headline: "Reviewed headline", summary: "Reviewed summary", story: "Full reviewed story.", ctaLabel: "Donate a Phone", contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", blocks: [{ type: "callout", content: { heading: "Callout", body: "Reviewed block" } }] } } }) }));
+    await page.route("**/api/staff/campaigns/publish", async (route) => { publishedRequest = route.request().postDataJSON() as Record<string, unknown>; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }); });
     await page.route("**/api/staff/partners", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ partners: { organizations: [] } }) }));
     await page.goto("/staff");
     await expect(page.getByRole("heading", { name: "Donation management" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish this exact revision" })).toHaveCount(0);
     await page.getByRole("button", { name: "Review exact revision" }).click();
     await expect(page.getByText("Full reviewed story.")).toBeVisible();
     await expect(page.getByText(/Full revision hash:/)).toBeVisible();
+    await expect(page.getByText("Administrator approval is required to publish this exact revision.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish this exact revision" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "DBM-E2E-STAFF" })).toBeVisible();
     await page.getByRole("button", { name: "DBM-E2E-STAFF" }).click();
     await expect(page.getByRole("heading", { name: "Receive package" })).toBeVisible();
     await page.getByLabel("Package condition").fill("sealed");
     await page.getByRole("button", { name: "Confirm physical receipt" }).click();
     await expect(page.getByRole("status")).toContainText("Saved and audited");
+
+    // The same exact preview gains the publish control only after the server
+    // derives an administrator role; the request must carry that exact pair.
+    staffRole = "admin";
+    await page.reload();
+    await page.getByRole("button", { name: "Review exact revision" }).click();
+    await expect(page.getByRole("button", { name: "Publish this exact revision" })).toBeVisible();
+    await page.getByRole("button", { name: "Publish this exact revision" }).click();
+    await expect.poll(() => publishedRequest).toEqual({ campaignId: "00000000-0000-4000-8000-000000000020", revisionId: "00000000-0000-4000-8000-000000000021" });
   });
 });
