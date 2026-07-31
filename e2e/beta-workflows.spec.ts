@@ -131,6 +131,7 @@ test.describe("deterministic beta browser workflows", () => {
     await page.getByRole("button", { name: "Review exact revision" }).click();
     await expect(page.getByText("Full reviewed story.")).toBeVisible();
     await expect(page.getByText(/Full revision hash:/)).toBeVisible();
+    await expect(page.getByText("00000000-0000-4000-8000-000000000021")).toBeVisible();
     await expect(page.getByText("Administrator approval is required to publish this exact revision.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Publish this exact revision" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "DBM-E2E-STAFF" })).toBeVisible();
