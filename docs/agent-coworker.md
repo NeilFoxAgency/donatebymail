@@ -70,6 +70,10 @@ These boundaries are enforced by both the MCP catalog and database policy.
 
 No active proceeds policy is created by this integration. The database remains on policy hold until leadership approves an exact versioned policy, eligibility rules, and deductible cost categories. Economic terms and effective dates on an existing policy version are immutable; changes require a new version.
 
+## Workspace runtime sources
+
+The Workspace Agent should attach the canonical Donate by Mail knowledge, data, and operating-instruction files. Those files supply durable organizational guidance; Gmail and the bounded MCP tools supply current operational facts. When a static file and a live tool result differ, the agent must use the live authorized result for the specific case and flag any durable policy conflict to Tre.
+
 ## Deployment
 
 This branch does not deploy the beta Worker. Before connecting a Workspace Agent:
