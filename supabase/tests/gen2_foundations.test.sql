@@ -137,7 +137,7 @@ insert into app_private.donor_contacts (
 insert into app_private.donations (
   id, public_id, client_submission_key, donor_contact_id, shipping_method,
   selected_charity_pledge_id, selected_charity_name, tracking_nonce,
-  policy_version_snapshot_id
+  policy_version_snapshot_id, request_hash, claim_nonce
 ) values (
   '30000000-0000-0000-0000-000000000002',
   'DBM-20260101-ABCDEF12',
@@ -147,7 +147,9 @@ insert into app_private.donations (
   '30000000-0000-0000-0000-000000000003',
   'Test Charity',
   '30000000-0000-0000-0000-000000000004',
-  '20000000-0000-0000-0000-000000000002'
+  '20000000-0000-0000-0000-000000000002',
+  repeat('d', 64),
+  '30000000-0000-0000-0000-000000000010'
 );
 insert into app_private.donation_devices (
   id, donation_id, source, donor_device_key, donor_brand, donor_model,
@@ -221,7 +223,7 @@ select throws_ok(
   $$
     update app_private.device_sale_results
     set gross_amount_cents = 11000
-    where id = '30000000-0000-0000-0000-000000000006'
+    where id = '30000000-0000-0000-000000000006'
   $$,
   'append-only ledger rows cannot be updated',
   'sales history cannot be rewritten'
