@@ -89,9 +89,11 @@ select is(
 select is(
   (
     select outcome::text
-    from app_private.action_policy_rules
-    where command_name = 'send_message'
-      and actor = 'agent'
+    from app_private.action_policy_rules r
+    join app_private.action_policy_versions v on v.id = r.policy_version_id
+    where r.command_name = 'send_message'
+      and r.actor = 'agent'
+      and v.lifecycle = 'active'
   ),
   'REQUIRE_APPROVAL',
   'beta email automation uses policy-configured approval'

@@ -1262,31 +1262,115 @@ async function handlePartnerApi(request: Request, env: WorkerEnv, url: URL): Pro
   return json({ ok: false, message: "Not found." }, 404);
 }
 
+const AGENT_FACT_KEYS = new Set([
+  "authenticated_sender", "partner_member", "campaign_status", "revision_hash",
+  "reviewed", "recipient_kind", "source", "request_class", "data_class",
+]);
+
+function redactedAgentFacts(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!AGENT_FACT_KEYS.has(key)) continue;
+    if (typeof item === "boolean" || typeof item === "number") result[key] = item;
+    else if (typeof item === "string" && item.length <= 200) result[key] = item;
+  }
+  return result;
+}
+
+type AgentCommandInput = {
+  command: string | undefined;
+  risk: string;
+  idempotencyKey: string | undefined;
+  targetId: string | null;
+  agentIdentity: string;
+  targetType: string;
+  facts: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  correlationId: string;
+};
+
+async function evaluateAgentCommand(env: WorkerEnv, input: AgentCommandInput): Promise<Record<string, unknown>> {
+  const { command, risk, idempotencyKey, targetId, agentIdentity, targetType, facts, payload, correlationId } = input;
+  if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey)
+    throw new Error("Canonical command, risk, and idempotency key are required.");
+  const inputHash = await sha256Hex(canonicalAuthorizationInput({
+    agentIdentity, command, targetType, targetId, risk, facts, payload,
+  }));
+  return await supabaseRpc<Record<string, unknown>>(env, "evaluate_agent_command", {
+    agent_identity: agentIdentity, command_value: command,
+    target_kind: targetType, target_value: targetId, risk_value: risk,
+    facts, input_hash_value: inputHash, correlation_value: correlationId,
+    idempotency_value: idempotencyKey,
+  });
+}
+
+async function executeAllowedAgentCommand(
+  env: WorkerEnv,
+  input: AgentCommandInput,
+  decision: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> {
+  if (decision.replayed || decision.outcome !== "ALLOW_AUTOMATICALLY" || !decision.decisionId || !isSemanticCommand(input.command)) return null;
+  return await supabaseRpc<Record<string, unknown>>(env, "agent_execute_command", {
+    decision_id_value: decision.decisionId, agent_identity: input.agentIdentity,
+    command_value: input.command, target_id_value: input.targetId, payload_value: input.payload,
+  });
+}
+
 async function handleAgentCommand(request: Request, env: WorkerEnv): Promise<Response> {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
   if (!(await safeSecretEqual(bearer, env.AGENT_API_KEY))) return json({ ok: false, message: "Unauthorized." }, 401);
   if (request.method !== "POST") return json({ ok: false, message: "Method not allowed." }, 405);
   const body = (await readJson(request, 40_000)) as Record<string, unknown>;
-  const command = stringValue(body.command);
-  const risk = stringValue(body.risk) || "moderate";
-  const idempotencyKey = stringValue(body.idempotencyKey);
-  if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ ok: false, message: "Canonical command, risk, and idempotency key are required." }, 400);
-  const targetId = stringValue(body.targetId) || null;
-  const agentIdentity = stringValue(body.agentIdentity) || "workspace-agent-beta";
-  const targetType = stringValue(body.targetType) || "unknown";
-  const inputHash = await sha256Hex(canonicalAuthorizationInput({
-    agentIdentity, command, targetType, targetId, risk,
-    facts: body.facts || {}, payload: body.payload || {},
-  }));
-  const decision = await supabaseRpc(env, "evaluate_agent_command", {
-    agent_identity: agentIdentity,
-    command_value: command, target_kind: targetType,
-    target_value: targetId, risk_value: risk,
-    facts: body.facts || {}, input_hash_value: inputHash,
-    correlation_value: stringValue(body.correlationId) || crypto.randomUUID(),
-    idempotency_value: idempotencyKey,
-  });
-  return json({ ok: true, decision });
+  const payload = body.payload && typeof body.payload === "object" && !Array.isArray(body.payload) ? body.payload as Record<string, unknown> : {};
+  const input: AgentCommandInput = {
+    command: stringValue(body.command), risk: stringValue(body.risk) || "moderate",
+    idempotencyKey: stringValue(body.idempotencyKey), targetId: stringValue(body.targetId) || null,
+    agentIdentity: stringValue(body.agentIdentity) || "workspace-agent-beta",
+    targetType: stringValue(body.targetType) || "unknown", facts: redactedAgentFacts(body.facts),
+    payload, correlationId: stringValue(body.correlationId) || crypto.randomUUID(),
+  };
+  if (!isSemanticCommand(input.command) || !isRiskLevel(input.risk) || !input.idempotencyKey)
+    return json({ ok: false, message: "Canonical command, risk, and idempotency key are required." }, 400);
+  const decision = await evaluateAgentCommand(env, input);
+  const execution = await executeAllowedAgentCommand(env, input, decision);
+  return json({ ok: true, decision, execution });
+}
+
+async function handleAgentQuery(request: Request, env: WorkerEnv): Promise<Response> {
+  const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
+  if (!(await safeSecretEqual(bearer, env.AGENT_API_KEY))) return json({ ok: false, message: "Unauthorized." }, 401);
+  if (request.method !== "POST") return json({ ok: false, message: "Method not allowed." }, 405);
+  const body = (await readJson(request, 12_000)) as Record<string, unknown>;
+  const kind = stringValue(body.kind);
+  try {
+    if (kind === "donation_status" || kind === "donation_history") {
+      const publicId = stringValue(body.publicId);
+      if (!publicId) return json({ ok: false, message: "A donation public ID is required." }, 400);
+      const context = await supabaseRpc<Record<string, unknown> | null>(env, "agent_get_donation_context", { candidate_public_id: publicId });
+      if (!context) return json({ ok: false, message: "Donation not found." }, 404);
+      return json({ ok: true, data: kind === "donation_history" ? { publicId: context.publicId, history: context.history } : context });
+    }
+    if (kind === "campaign_metrics" || kind === "partner_context") {
+      const id = stringValue(body.id);
+      if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return json({ ok: false, message: "A valid resource ID is required." }, 400);
+      const data = await supabaseRpc<Record<string, unknown> | null>(env, kind === "campaign_metrics" ? "agent_get_campaign_metrics" : "agent_get_partner_context", kind === "campaign_metrics" ? { candidate_campaign_id: id } : { candidate_organization_id: id });
+      return data ? json({ ok: true, data }) : json({ ok: false, message: "Resource not found." }, 404);
+    }
+    if (kind === "campaign") {
+      const slug = stringValue(body.slug);
+      if (!slug) return json({ ok: false, message: "A campaign slug is required." }, 400);
+      const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_public_campaign", { campaign_slug: slug });
+      return data ? json({ ok: true, data }) : json({ ok: false, message: "Campaign not found." }, 404);
+    }
+    return json({ ok: false, message: "Unsupported agent query." }, 400);
+  } catch {
+    return json({ ok: false, message: "The agent query was rejected." }, 400);
+  }
+}
+
+function mcpToolResult(id: unknown, data: unknown): Response {
+  return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data } });
 }
 
 async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
@@ -1300,40 +1384,55 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
   if (rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
   if (rpc.method === "initialize") return json({ jsonrpc: "2.0", id, result: {
     protocolVersion: "2025-11-25", capabilities: { tools: { listChanged: false } },
-    serverInfo: { name: "donate-by-mail-beta", version: "0.2.0" },
-    instructions: "Use semantic commands only. Physical, credential, arbitrary SQL, disbursement execution, and production deployment actions are prohibited.",
+    serverInfo: { name: "donate-by-mail-beta", version: "0.3.0" },
+    instructions: "Use redacted read tools and semantic commands only. Physical, credential, arbitrary SQL, disbursement execution, and production deployment actions are prohibited.",
   } });
-  if (rpc.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: [{
-    name: "evaluate_semantic_command",
-    description: "Evaluate and record a bounded Donate by Mail business command under the active policy. This does not provide arbitrary database access.",
-    inputSchema: { type: "object", additionalProperties: false,
-      required: ["command", "targetType", "risk", "idempotencyKey"], properties: {
-        command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] },
-        targetType: { type: "string" }, targetId: { type: "string", format: "uuid" },
-        risk: { type: "string", enum: RISK_LEVELS },
-        facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
-        correlationId: { type: "string", format: "uuid" },
-      } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }] } });
-  if (rpc.method === "tools/call" && rpc.params?.name === "evaluate_semantic_command") {
-    const args = rpc.params.arguments || {};
-    const command = stringValue(args.command), idempotencyKey = stringValue(args.idempotencyKey), risk = stringValue(args.risk) || "moderate";
-    if (!isSemanticCommand(command) || !isRiskLevel(risk) || !idempotencyKey) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid tool arguments" } });
-    const targetId = stringValue(args.targetId) || null;
-    const agentIdentity = "workspace-agent-beta";
-    const targetType = stringValue(args.targetType) || "unknown";
-    const inputHash = await sha256Hex(canonicalAuthorizationInput({
-      agentIdentity, command, targetType, targetId, risk,
-      facts: args.facts || {}, payload: args.payload || {},
-    }));
-    const decision = await supabaseRpc(env, "evaluate_agent_command", {
-      agent_identity: agentIdentity, command_value: command,
-      target_kind: targetType, target_value: targetId,
-      risk_value: risk, facts: args.facts || {},
-      input_hash_value: inputHash, correlation_value: stringValue(args.correlationId) || crypto.randomUUID(),
-      idempotency_value: idempotencyKey,
-    });
-    return json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(decision) }], structuredContent: decision } });
+  if (rpc.method === "tools/list") return json({ jsonrpc: "2.0", id, result: { tools: [
+    { name: "get_donation_status", description: "Get donor-safe current donation status, shipment last four, devices, charity, and status history without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_donation_history", description: "Get the donor-visible status history for one donation without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_campaign", description: "Get the currently published public campaign content by canonical slug.", inputSchema: { type: "object", required: ["slug"], properties: { slug: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_campaign_metrics", description: "Get aggregate campaign donation and event metrics without donor PII.", inputSchema: { type: "object", required: ["campaignId"], properties: { campaignId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_partner_context", description: "Get one partner organization's campaigns, verified charities, and aggregate metrics without donor PII.", inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "evaluate_semantic_command", description: "Evaluate and, when policy allows, execute a bounded Donate by Mail command. This does not provide arbitrary database access.", inputSchema: { type: "object", additionalProperties: false, required: ["command", "targetType", "risk", "idempotencyKey"], properties: {
+      command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] }, targetType: { type: "string" }, targetId: { type: "string", format: "uuid" }, risk: { type: "string", enum: RISK_LEVELS }, facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
+    } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+  ] } });
+  if (rpc.method === "tools/call") {
+    const name = stringValue(rpc.params?.name);
+    const args = rpc.params?.arguments && typeof rpc.params.arguments === "object" ? rpc.params.arguments as Record<string, unknown> : {};
+    try {
+      if (name === "get_donation_status" || name === "get_donation_history") {
+        const publicId = stringValue(args.publicId);
+        if (!publicId) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "publicId is required" } });
+        const context = await supabaseRpc<Record<string, unknown> | null>(env, "agent_get_donation_context", { candidate_public_id: publicId });
+        if (!context) return json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Donation not found" } });
+        return mcpToolResult(id, name === "get_donation_history" ? { publicId: context.publicId, history: context.history } : context);
+      }
+      if (name === "get_campaign") {
+        const slug = stringValue(args.slug);
+        if (!slug) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "slug is required" } });
+        const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_public_campaign", { campaign_slug: slug });
+        return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Campaign not found" } });
+      }
+      if (name === "get_campaign_metrics" || name === "get_partner_context") {
+        const resourceId = stringValue(name === "get_campaign_metrics" ? args.campaignId : args.organizationId);
+        if (!resourceId || !/^[0-9a-f-]{36}$/i.test(resourceId)) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "A valid resource ID is required" } });
+        const data = await supabaseRpc<Record<string, unknown> | null>(env, name === "get_campaign_metrics" ? "agent_get_campaign_metrics" : "agent_get_partner_context", name === "get_campaign_metrics" ? { candidate_campaign_id: resourceId } : { candidate_organization_id: resourceId });
+        return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Resource not found" } });
+      }
+      if (name === "evaluate_semantic_command") {
+        const input: AgentCommandInput = {
+          command: stringValue(args.command), risk: stringValue(args.risk) || "moderate", idempotencyKey: stringValue(args.idempotencyKey), targetId: stringValue(args.targetId) || null,
+          agentIdentity: "workspace-agent-beta", targetType: stringValue(args.targetType) || "unknown", facts: redactedAgentFacts(args.facts), payload: args.payload && typeof args.payload === "object" && !Array.isArray(args.payload) ? args.payload as Record<string, unknown> : {}, correlationId: stringValue(args.correlationId) || crypto.randomUUID(),
+        };
+        if (!isSemanticCommand(input.command) || !isRiskLevel(input.risk) || !input.idempotencyKey) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "Invalid tool arguments" } });
+        const decision = await evaluateAgentCommand(env, input);
+        const execution = await executeAllowedAgentCommand(env, input, decision);
+        return mcpToolResult(id, { decision, execution });
+      }
+    } catch {
+      return json({ jsonrpc: "2.0", id, error: { code: -32003, message: "Tool execution failed" } }, 400);
+    }
   }
   return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
 }
@@ -1391,6 +1490,10 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname.startsWith("/api/partner/")) {
       try { return await handlePartnerApi(request, env, url); }
       catch { return json({ ok: false, message: "The partner request was rejected." }, 400); }
+    }
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/api/agent/v1/queries") {
+      try { return await handleAgentQuery(request, env); }
+      catch { return json({ ok: false, message: "The agent query was rejected." }, 400); }
     }
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/api/agent/v1/commands") {
       try { return await handleAgentCommand(request, env); }

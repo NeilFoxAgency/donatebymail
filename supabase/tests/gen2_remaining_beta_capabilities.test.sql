@@ -97,7 +97,7 @@ select is(api.evaluate_agent_command('agent-beta','arbitrary_database_query','da
   'DENY','agent arbitrary SQL remains prohibited');
 select is(api.evaluate_agent_command('agent-beta','update_campaign_content','campaign',
   (select id from app_private.campaigns where slug='give-phones-a'),'low','{}',repeat('e',64),gen_random_uuid(),'agent-content-001')->>'outcome',
-  'REQUIRE_APPROVAL','routine content command follows current beta policy rather than a permanent hard-code');
+  'ALLOW_AUTOMATICALLY','routine content command follows the versioned beta policy and can later be reconfigured');
 select is((select count(*)::bigint from app_private.action_decisions where actor_ref='agent-beta'),3::bigint,
   'all agent decisions are recorded');
 

@@ -82,6 +82,7 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
     DEPLOYMENT_ENVIRONMENT: "beta" as const, SUPABASE_URL: supabaseUrl,
     SUPABASE_SECRET_KEY: serviceKey, SUPABASE_PUBLISHABLE_KEY: publishableKey,
     DONATION_TRACKING_SECRET: "integration-tracking-secret-32-characters-minimum",
+    AGENT_API_KEY: "integration-agent-key-32-characters-minimum",
     ADMIN_NOTIFICATION_TO: "tre+beta@donatebymail.org", BREVO_SENDER_EMAIL: "contact@donatebymail.org",
     BREVO_SENDER_NAME: "Donate by Mail", REPLY_TO_EMAIL: "contact@donatebymail.org",
     BFF_SESSION_SECRET: "integration-bff-secret-32-characters-minimum", BREVO_API_URL: "",
@@ -97,6 +98,49 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
     expect(sql(`select campaign_id::text||':'||selected_charity_pledge_id::text||':'||coalesce(policy_version_snapshot_id::text,'') from app_private.donations where public_id='${publicId}'`)).toBe(`${campaignId}:${pledgeId}:${policyVersionId}`);
     const tampered = { ...payload, clientSubmissionKey: crypto.randomUUID(), charity: { pledgeId: "b1000000-0000-4000-8000-000000000099", name: "Wrong" } };
     await expect(worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(tampered) }), env)).rejects.toThrow();
+  });
+
+  it("executes only policy-allowed agent commands and exposes redacted read tools", async () => {
+    const donationId = sql("select id from app_private.donations order by created_at asc limit 1");
+    const publicId = sql("select public_id from app_private.donations order by created_at asc limit 1");
+    const commandBody = {
+      command: "create_internal_note", targetType: "donation", targetId: donationId,
+      risk: "low", idempotencyKey: "integration-agent-note-1", agentIdentity: "workspace-agent-beta",
+      facts: { authenticated_sender: true, donorEmail: "should-not-be-stored-in-decision" },
+      payload: { body: "Agent-created operational note." },
+    };
+    const commandResponse = await worker.fetch(new Request("http://integration.test/api/agent/v1/commands", {
+      method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify(commandBody),
+    }), env);
+    expect(commandResponse.status).toBe(200);
+    const commandResult = await commandResponse.json() as { decision: Record<string, unknown>; execution: Record<string, unknown> };
+    expect(commandResult.decision.outcome).toBe("ALLOW_AUTOMATICALLY");
+    expect(commandResult.execution.executed).toBe(true);
+    expect(sql(`select count(*) from app_private.donation_internal_notes where donation_id='${donationId}' and created_by_agent='workspace-agent-beta'`)).toBe("1");
+    expect(sql(`select (context ? 'donorEmail')::text from app_private.action_decisions where id='${commandResult.decision.decisionId}'`)).toBe("false");
+
+    const replayResponse = await worker.fetch(new Request("http://integration.test/api/agent/v1/commands", {
+      method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify(commandBody),
+    }), env);
+    expect(replayResponse.status).toBe(200);
+    expect((await replayResponse.json() as { decision: Record<string, unknown> }).decision.replayed).toBe(true);
+    expect(sql(`select count(*) from app_private.donation_internal_notes where donation_id='${donationId}' and created_by_agent='workspace-agent-beta'`)).toBe("1");
+
+    const queryResponse = await worker.fetch(new Request("http://integration.test/api/agent/v1/queries", {
+      method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({ kind: "donation_status", publicId }),
+    }), env);
+    expect(queryResponse.status).toBe(200);
+    const queryText = await queryResponse.text();
+    expect(queryText).not.toContain("integration-donor@example.test");
+    expect(queryText).not.toContain("1 Main");
+    expect(queryText).toContain(publicId);
+
+    const toolsResponse = await worker.fetch(new Request("http://integration.test/mcp", {
+      method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    }), env);
+    expect(toolsResponse.status).toBe(200);
+    const toolsResult = await toolsResponse.json() as { result: { tools: Array<{ name: string }> } };
+    expect(toolsResult.result.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["get_donation_status", "get_campaign_metrics", "evaluate_semantic_command"]));
   });
 
   it("runs status outbox through the actual Worker dispatcher and mocked Brevo", async () => {
