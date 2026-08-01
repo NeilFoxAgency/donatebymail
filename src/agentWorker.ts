@@ -558,7 +558,7 @@ export default {
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp")
       return handleAgentMcp(request, env);
     if (!originalWorker.fetch) throw new Error("worker_fetch_unavailable");
-    return originalWorker.fetch(request, env, ctx);
+    return originalWorker.fetch(request as any, env, ctx);
   },
   async scheduled(controller: ScheduledController, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<void> {
     if (originalWorker.scheduled) await originalWorker.scheduled(controller, env, ctx);
