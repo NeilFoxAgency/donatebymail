@@ -18,7 +18,7 @@ select is(has_function_privilege('service_role', 'api.agent_execute_command(uuid
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='update_campaign_content' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'routine campaign wording can be autonomous under the active policy');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='create_partner_lead' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'bounded partner lead creation can be autonomous');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='create_internal_note' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'bounded internal notes can be autonomous');
-select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='send_message' and r.actor='agent' and v.lifecycle='active'), 'REQUIRE_APPROVAL', 'outbound email remains approval configurable in beta');
+select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='send_message' and r.actor='agent' and r.target_type is null and v.lifecycle='active'), 'REQUIRE_APPROVAL', 'outbound email remains approval configurable in beta');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='change_donation_status' and r.actor='agent' and v.lifecycle='active'), 'REQUIRE_APPROVAL', 'donor-visible status changes remain approval configurable');
 select is((select human_only from app_private.semantic_command_registry where command_name='record_physical_receipt'), true, 'physical receipt remains human-controlled');
 select is((select human_only from app_private.semantic_command_registry where command_name='arbitrary_database_query'), true, 'arbitrary database access remains prohibited');
@@ -66,7 +66,7 @@ select api.evaluate_agent_command('agent-runtime','create_partner_lead','partner
 select is((select result->>'outcome' from lead_decision), 'ALLOW_AUTOMATICALLY', 'partner lead creation is automatically allowed');
 select lives_ok(format($$select api.agent_execute_command(%L::uuid,'agent-runtime','create_partner_lead',null,'{"email":"lead@example.test","organizationName":"New Partner"}'::jsonb)$$,
   (select result->>'decisionId' from lead_decision)), 'agent can create a bounded partner lead');
-select is((select count(*)::bigint from app_private.partner_leads where created_by_agent='agent-runtime'), 1::bigint, 'partner lead creation is persisted privately');
+select is((select count(*)::bigint from app_private.partner_leads where created_by_agent_ref='agent-runtime'), 1::bigint, 'partner lead creation is persisted privately');
 
 create temporary table content_decision as
 select api.evaluate_agent_command('agent-runtime','update_campaign_content','campaign','91000000-0000-4000-8000-000000000005'::uuid,'low','{}',repeat('d',64),gen_random_uuid(),'agent-runtime-content-1') result;

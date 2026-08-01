@@ -10,7 +10,7 @@ Donate by Mail is a U.S. 501(c)(3) public charity with a mission to turn unused 
 - Cloudflare Worker submission endpoint and administrator email notification
 - Complete donor packet and browser-saved draft
 - Printable packing slip
-- Pending acknowledgment preview that excludes estimated tax value
+- Printable donor packet with a packing slip and shipping label
 - Phone data-preparation and security guidance
 - Mission, nonprofit-program, resource, transparency, contact, privacy, terms, and accessibility pages
 - Crawlable landing pages suitable for mission-focused Google Ad Grants campaigns
@@ -44,7 +44,10 @@ VITE_PLEDGE_ENV=production
 
 The partner key is intended for frontend use. Do not expose the secret Pledge API key. Full setup, local testing, optional metadata lookup, and administrator-notification behavior are documented in [`docs/pledge-charity-selection.md`](docs/pledge-charity-selection.md).
 
-This version does not send money through Pledge and does not implement payouts, webhooks, or transaction tracking.
+Pledge provides nonprofit search and selection; it is not a payment rail. The beta
+stores donation, shipment, device-processing, proceeds-policy, and manual finance
+records, but it does not move money automatically. Documentation is issued only
+after staff verify physical receipt and the device.
 
 ## Cloudflare deployment
 
@@ -55,10 +58,10 @@ Before deployment:
 3. Verify the sender and destination configured in `wrangler.jsonc`.
 4. Optionally configure richer Pledge metadata lookup with `npx wrangler secret put PLEDGE_API_KEY`.
 
-Then deploy:
+Then deploy through the explicit environment command:
 
 ```bash
-npm run deploy
+npm run deploy:production
 ```
 
 ### Beta environment

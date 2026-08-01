@@ -56,31 +56,37 @@ select is(
 );
 select is(
   (
-    select outcome::text
-    from app_private.action_policy_rules
-    where command_name = 'send_message'
-      and actor = 'agent'
-      and target_type is null
+    select r.outcome::text
+    from app_private.action_policy_rules r
+    join app_private.action_policy_versions v on v.id = r.policy_version_id
+    where r.command_name = 'send_message'
+      and r.actor = 'agent'
+      and r.target_type is null
+      and v.lifecycle = 'active'
   ),
   'REQUIRE_APPROVAL',
   'generic beta email automation remains policy-configured for approval'
 );
 select is(
   (
-    select outcome::text
-    from app_private.action_policy_rules
-    where command_name = 'record_physical_receipt'
-      and actor = 'agent'
+    select r.outcome::text
+    from app_private.action_policy_rules r
+    join app_private.action_policy_versions v on v.id = r.policy_version_id
+    where r.command_name = 'record_physical_receipt'
+      and r.actor = 'agent'
+      and v.lifecycle = 'active'
   ),
   'DENY',
   'agent cannot record physical receipt'
 );
 select is(
   (
-    select outcome::text
-    from app_private.action_policy_rules
-    where command_name = 'execute_disbursement'
-      and actor = 'agent'
+    select r.outcome::text
+    from app_private.action_policy_rules r
+    join app_private.action_policy_versions v on v.id = r.policy_version_id
+    where r.command_name = 'execute_disbursement'
+      and r.actor = 'agent'
+      and v.lifecycle = 'active'
   ),
   'DENY',
   'agent cannot execute a disbursement'
@@ -134,6 +140,8 @@ insert into app_private.donor_contacts (
   '34741',
   'US'
 );
+insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at)
+values('30000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000000','authenticated','authenticated','staff-foundation@example.org','',now(),now(),now());
 insert into app_private.donations (
   id, public_id, client_submission_key, donor_contact_id, shipping_method,
   selected_charity_pledge_id, selected_charity_name, tracking_nonce,
@@ -215,7 +223,7 @@ select throws_ok(
     set allocated_cents = 4000
     where id = '30000000-0000-0000-0000-000000000009'
   $$,
-  'allocation financial fields are immutable',
+  'proceeds allocation calculation is immutable',
   'allocation accounting cannot be silently edited'
 );
 
@@ -223,9 +231,9 @@ select throws_ok(
   $$
     update app_private.device_sale_results
     set gross_amount_cents = 11000
-    where id = '30000000-0000-0000-000000000006'
+    where id = '30000000-0000-0000-0000-000000000006'
   $$,
-  'append-only ledger rows cannot be updated',
+  'device_sale_results is append-only',
   'sales history cannot be rewritten'
 );
 
@@ -234,7 +242,7 @@ select throws_ok(
     delete from app_private.donation_costs
     where id = '30000000-0000-0000-0000-000000000008'
   $$,
-  'append-only ledger rows cannot be deleted',
+  'donation_costs is append-only',
   'cost history cannot be erased'
 );
 

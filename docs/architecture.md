@@ -161,10 +161,15 @@ controlled campaign assets, not mutable partner-provided remote image URLs.
    automation.
 
 The beta currently implements the Phase 0 and Phase 1A foundations, the Phase
-1B donor/staff operational slice, and bounded Phase 2/later-phase test surfaces
-for campaign revisions, policy-held proceeds, manual disbursement recording,
-and semantic agent-policy evaluation. These surfaces remain beta-only and are
-not authorization to deploy or migrate production.
+1B donor/staff operational slice, expanded Phase 2 financial and administrative
+records, partner/campaign workflows, and a bounded agent coworker surface. The
+coworker can read redacted operational context, journal inbound messages, create
+bounded partner leads, and authorize exact low-risk support emails. Campaign
+wording revisions and internal notes can execute automatically under versioned
+policy; publication, donor-visible status changes, financial actions, physical
+verification, credentials, and production deployment remain separate human or
+approval-controlled gates. These surfaces remain beta-only and are not
+authorization to deploy or migrate production.
 
 Turnstile is intentionally omitted from beta so automated and human testing can
 exercise the flows. The beta is synthetic-data-only and applies server-side

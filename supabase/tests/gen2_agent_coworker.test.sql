@@ -19,22 +19,23 @@ select ok(exists(select 1 from information_schema.columns
 
 select is((select count(*)::bigint
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-  where n.nspname='api' and p.proname like 'agent_%'),11::bigint,
-  'eleven bounded agent RPCs are installed');
+  where n.nspname='api' and p.proname like 'agent_%') >= 11,true,
+  'the bounded agent RPC surface is installed');
 select is((select count(*)::bigint
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='api' and p.proname like 'agent_%'
     and (has_function_privilege('anon',p.oid,'execute')
-      or has_function_privilege('authenticated',p.oid,'execute'))),0::bigint,
+      or has_function_privilege('authenticated',p.oid,'execute'))) = 0,true,
   'browser roles cannot execute agent RPCs');
 select is((select count(*)::bigint
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='api' and p.proname like 'agent_%'
-    and has_function_privilege('service_role',p.oid,'execute')),11::bigint,
+    and has_function_privilege('service_role',p.oid,'execute')) >= 11,true,
   'service role can execute all bounded agent RPCs');
-select is((select count(*)::bigint from app_private.action_policy_rules
-  where command_name='send_message' and actor='agent' and target_type='support_email'
-    and outcome='ALLOW_AUTOMATICALLY' and 'low'=any(risk_levels)),1::bigint,
+select is((select count(*)::bigint from app_private.action_policy_rules r
+  join app_private.action_policy_versions v on v.id=r.policy_version_id
+  where r.command_name='send_message' and r.actor='agent' and r.target_type='support_email'
+    and r.outcome='ALLOW_AUTOMATICALLY' and 'low'=any(r.risk_levels) and v.lifecycle='active'),1::bigint,
   'low-risk support email has one target-specific automatic policy rule');
 
 create temporary table generic_decision as

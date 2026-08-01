@@ -2,28 +2,6 @@
 -- Agent input is still untrusted; only policy-allowed semantic commands can
 -- execute, and read functions return deliberately redacted operational context.
 
-create type app_private.partner_lead_stage as enum ('new', 'qualified', 'contacted', 'converted', 'closed');
-
-create table app_private.partner_leads (
-  id uuid primary key default gen_random_uuid(),
-  email text not null check (char_length(email) between 3 and 320),
-  email_search text not null check (email_search = lower(email_search)),
-  display_name text check (display_name is null or char_length(display_name) between 1 and 160),
-  organization_name text check (organization_name is null or char_length(organization_name) between 1 and 240),
-  notes text check (notes is null or char_length(notes) <= 2000),
-  stage app_private.partner_lead_stage not null default 'new',
-  source text not null default 'agent' check (source in ('agent', 'staff', 'inbound_email', 'manual')),
-  created_by_agent text check (created_by_agent is null or char_length(created_by_agent) between 1 and 200),
-  created_by_staff uuid references auth.users(id) on delete set null,
-  storage_format_version integer not null default 1 check (storage_format_version > 0),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  check ((created_by_agent is not null) <> (created_by_staff is not null))
-);
-create index partner_leads_email_search_idx on app_private.partner_leads(email_search);
-create index partner_leads_stage_idx on app_private.partner_leads(stage, created_at desc);
-alter table app_private.partner_leads enable row level security;
-
 alter table app_private.donation_internal_notes alter column created_by drop not null;
 alter table app_private.donation_internal_notes add column created_by_agent text
   check (created_by_agent is null or char_length(created_by_agent) between 1 and 200);
@@ -32,9 +10,6 @@ alter table app_private.donation_internal_notes add constraint donation_internal
 
 alter table app_private.campaign_revisions add column requested_by_agent text
   check (requested_by_agent is null or char_length(requested_by_agent) between 1 and 200);
-
-revoke all on app_private.partner_leads from public, anon, authenticated;
-grant select, insert, update on app_private.partner_leads to service_role;
 
 -- Version 2 permits bounded low-risk work to run automatically. External
 -- messages, publication, and donor-visible status changes remain approval-gated
@@ -76,11 +51,45 @@ cross join (
       'bounded_partner_lead_creation', 200),
     ('create_internal_note', array['low']::app_private.risk_level[],
       'ALLOW_AUTOMATICALLY'::app_private.action_policy_outcome,
-      'redacted_internal_note', 200)
+      'redacted_internal_note', 200),
+    ('record_physical_receipt', array['low', 'moderate', 'high']::app_private.risk_level[],
+      'DENY'::app_private.action_policy_outcome,
+      'human_physical_receipt', 1000),
+    ('record_device_valuation', array['low', 'moderate', 'high']::app_private.risk_level[],
+      'DENY'::app_private.action_policy_outcome,
+      'human_device_valuation', 1000),
+    ('execute_disbursement', array['low', 'moderate', 'high', 'critical']::app_private.risk_level[],
+      'DENY'::app_private.action_policy_outcome,
+      'human_financial_execution', 1000),
+    ('arbitrary_database_query', array['low', 'moderate', 'high', 'critical']::app_private.risk_level[],
+      'DENY'::app_private.action_policy_outcome,
+      'no_arbitrary_sql', 1000)
 ) as seed_rules(command_name, risk_levels, outcome, rationale_code, priority);
 
+-- Support email autonomy uses the specialized exact-content authorizer. The
+-- generic evaluator still escalates this target, while the authorizer looks up
+-- this target-specific rule after validating category, identity, and content.
+insert into app_private.action_policy_rules(
+  policy_version_id, command_name, actor, risk_levels, target_type,
+  outcome, rationale_code, priority, conditions
+)
+select v.id, 'send_message', 'agent', array['low']::app_private.risk_level[],
+  'support_email', 'ALLOW_AUTOMATICALLY', 'bounded_support_email_autonomy', 300,
+  jsonb_build_object(
+    'requires_exact_content_hash', true,
+    'requires_identity_verification_for_private_facts', true,
+    'allowed_categories', jsonb_build_array(
+      'general_faq','donation_status','donation_value_status',
+      'donation_shipping','donation_preparation',
+      'donation_acknowledgment_process','partner_campaign_setup',
+      'partner_portal_help','partner_campaign_status','internal_escalation'
+    )
+  )
+from app_private.action_policy_versions v
+where v.policy_key = 'beta_agent_actions' and v.version = 2 and v.lifecycle = 'active';
+
 create or replace function api.agent_get_donation_context(candidate_public_id text)
-returns jsonb language plpgsql security definer stable
+returns jsonb language plpgsql security definer volatile
 set search_path = pg_catalog, app_private as $$
 declare result jsonb;
 begin
@@ -112,7 +121,7 @@ begin
 end $$;
 
 create or replace function api.agent_get_campaign_metrics(candidate_campaign_id uuid)
-returns jsonb language plpgsql security definer stable
+returns jsonb language plpgsql security definer volatile
 set search_path = pg_catalog, app_private as $$
 declare result jsonb;
 begin
@@ -133,7 +142,7 @@ begin
 end $$;
 
 create or replace function api.agent_get_partner_context(candidate_organization_id uuid)
-returns jsonb language plpgsql security definer stable
+returns jsonb language plpgsql security definer volatile
 set search_path = pg_catalog, app_private as $$
 declare result jsonb;
 begin
@@ -156,12 +165,10 @@ create or replace function api.agent_execute_command(
 ) returns jsonb language plpgsql security definer
 set search_path = pg_catalog, app_private as $$
 declare decision_row app_private.action_decisions%rowtype;
-  result jsonb; note_id uuid; revision_id uuid; lead_id uuid;
+  result jsonb; note_id uuid; revision_id uuid; lead_id uuid; agent_action_id uuid;
   body_value text; headline_value text; summary_value text; story_value text; cta_value text;
   blocks_value jsonb; canonical_hash text; next_version integer; campaign_id_value uuid;
   email_value text; normalized_email text; display_name_value text; organization_name_value text; notes_value text;
-  old_status app_private.donation_status; new_status app_private.donation_status;
-  domain_event_id uuid; outbox_id uuid;
 begin
   perform app_private.assert_service_role();
   select * into decision_row from app_private.action_decisions
@@ -196,8 +203,16 @@ begin
     if display_name_value is not null and char_length(display_name_value) > 160 then raise exception 'partner lead name too long' using errcode = '22023'; end if;
     if organization_name_value is not null and char_length(organization_name_value) > 240 then raise exception 'partner lead organization too long' using errcode = '22023'; end if;
     if notes_value is not null and char_length(notes_value) > 2000 then raise exception 'partner lead notes too long' using errcode = '22023'; end if;
-    insert into app_private.partner_leads(email, email_search, display_name, organization_name, notes, source, created_by_agent)
-      values(normalized_email, normalized_email, display_name_value, organization_name_value, notes_value, 'agent', agent_identity) returning id into lead_id;
+    select id into agent_action_id from app_private.agent_actions where action_decision_id = decision_row.id;
+    insert into app_private.partner_leads(
+      requester_email_search, organization_name, request_summary,
+      agent_action_id, created_by_agent_ref
+    ) values(
+      normalized_email,
+      coalesce(nullif(organization_name_value, ''), 'Prospective nonprofit'),
+      coalesce(notes_value, 'Partner lead created by the operations agent.'),
+      agent_action_id, agent_identity
+    ) returning id into lead_id;
     result := jsonb_build_object('leadId', lead_id, 'stage', 'new');
     insert into app_private.audit_events(actor, actor_ref, action_name, entity_type, entity_id, reason_code, redacted_changes, metadata)
       values('agent', agent_identity, 'agent.create_partner_lead', 'partner_lead', lead_id, 'policy_allowed_lead_creation', jsonb_build_object('email_redacted', true), jsonb_build_object('pii_redacted', true));
