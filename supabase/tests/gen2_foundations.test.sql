@@ -4,37 +4,69 @@ create extension if not exists pgtap with schema extensions;
 
 select plan(37);
 
-select has_table('app_private', 'donations', 'donations table exists');
-select has_table('app_private', 'donation_devices', 'donation devices table exists');
-select has_table('app_private', 'donation_shipments', 'donation shipments table exists');
-select has_table('app_private', 'device_sale_results', 'device sale results table exists');
-select has_table('app_private', 'donation_costs', 'donation costs table exists');
-select has_table('app_private', 'proceeds_allocations', 'proceeds allocations table exists');
-select has_table('app_private', 'disbursements', 'disbursements table exists');
-select has_table('app_private', 'audit_events', 'audit events table exists');
-select has_table('app_private', 'domain_events', 'domain events table exists');
-select has_table('app_private', 'outbox_events', 'outbox events table exists');
-select has_table('app_private', 'action_decisions', 'action decisions table exists');
-select has_table('app_private', 'agent_actions', 'agent actions table exists');
-select has_table('app_private', 'agent_escalations', 'agent escalations table exists');
-select has_table('app_private', 'semantic_command_registry', 'semantic command registry table exists');
+select has_schema('app_private', 'private operational schema exists');
+select has_schema('api', 'narrow API schema exists');
+select has_table('app_private', 'profiles', 'profile foundation exists');
+select has_table('app_private', 'proceeds_policies', 'proceeds policy foundation exists');
+select has_table('app_private', 'action_decisions', 'action decision ledger exists');
+select has_table('app_private', 'outbox_events', 'transactional outbox exists');
 
-select has_type('app_private', 'donation_status', 'donation status enum exists');
-select has_type('app_private', 'device_inspection_status', 'inspection status enum exists');
-select has_type('app_private', 'allocation_status', 'allocation status enum exists');
-select has_type('app_private', 'action_policy_outcome', 'action outcome enum exists');
-select has_type('app_private', 'risk_level', 'risk level enum exists');
+select is(
+  (
+    select count(*)::bigint
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'app_private'
+      and c.relkind in ('r', 'p')
+      and not c.relrowsecurity
+  ),
+  0::bigint,
+  'RLS is enabled on every private table'
+);
 
-select col_is_pk('app_private', 'donations', 'id', 'donations use UUID primary key');
-select col_type_is('app_private', 'donations', 'id', 'uuid', 'donation ID is UUID');
-select col_type_is('app_private', 'donation_devices', 'assessed_value_cents', 'bigint', 'values use integer cents');
-select col_type_is('app_private', 'proceeds_allocations', 'share_basis_points', 'integer', 'shares use basis points');
-select col_type_is('app_private', 'proceeds_policy_versions', 'eligibility_rules', 'jsonb', 'policy eligibility is versioned JSON');
-
-select has_index('app_private', 'donations', 'donations_public_id_key', 'public donation ID is unique');
-select has_index('app_private', 'donations', 'donations_client_submission_key_key', 'client submission key is unique');
-select has_index('app_private', 'outbox_events', 'outbox_events_domain_event_id_handler_key_key', 'outbox delivery is idempotent by handler');
-select has_index('app_private', 'proceeds_policies', 'proceeds_policies_policy_key_key', 'policy keys are unique');
+select is(
+  has_schema_privilege('authenticated', 'app_private', 'usage'),
+  false,
+  'authenticated cannot use the private schema directly'
+);
+select is(
+  has_schema_privilege('anon', 'app_private', 'usage'),
+  false,
+  'anonymous callers cannot use the private schema'
+);
+select is(
+  has_schema_privilege('service_role', 'app_private', 'usage'),
+  true,
+  'service role can use the private schema'
+);
+select is(
+  has_table_privilege('authenticated', 'app_private.proceeds_policies', 'select'),
+  false,
+  'authenticated has no generic policy-table read access'
+);
+select is(
+  has_table_privilege('service_role', 'app_private.proceeds_policies', 'select'),
+  true,
+  'service role receives an explicit policy-table grant'
+);
+select is(
+  has_function_privilege(
+    'authenticated',
+    'api.claim_outbox_events(text,integer,integer)',
+    'execute'
+  ),
+  false,
+  'authenticated cannot claim outbox work'
+);
+select is(
+  has_function_privilege(
+    'service_role',
+    'api.claim_outbox_events(text,integer,integer)',
+    'execute'
+  ),
+  true,
+  'service role can call the narrow outbox claim RPC'
+);
 
 select is(
   (
@@ -63,7 +95,7 @@ select is(
       and target_type is null
   ),
   'REQUIRE_APPROVAL',
-  'generic beta email automation remains policy-configured for approval'
+  'generic beta email automation uses policy-configured approval'
 );
 select is(
   (
@@ -92,21 +124,22 @@ insert into app_private.proceeds_policies (
   '20000000-0000-0000-0000-000000000001',
   'test_effective_dates',
   'Test policy',
-  'Validate immutable policy constraints',
-  'draft'
+  'Validates immutable effective periods.',
+  'active'
 );
+
 insert into app_private.proceeds_policy_versions (
-  id, policy_id, version, lifecycle, share_basis_points,
-  calculation_method, eligibility_rules, effective_from
+  id, policy_id, version, lifecycle, calculation_method,
+  effective_from, effective_to, approved_at
 ) values (
   '20000000-0000-0000-0000-000000000002',
   '20000000-0000-0000-0000-000000000001',
   1,
-  'draft',
-  5000,
+  'active',
   'net_proceeds_share',
-  '{"minimum_assessed_value_cents": 100}'::jsonb,
-  '2026-01-01T00:00:00Z'
+  '2026-01-01T00:00:00Z',
+  '2027-01-01T00:00:00Z',
+  now()
 );
 
 select throws_ok(
@@ -115,128 +148,241 @@ select throws_ok(
     set effective_from = '2025-01-01T00:00:00Z'
     where id = '20000000-0000-0000-0000-000000000002'
   $$,
+  '22023',
   'policy version effective dates and eligibility are immutable',
   'policy history cannot be rewritten'
 );
 
-insert into app_private.donor_contacts (
-  id, first_name, last_name, email, email_search,
-  address_line_1, city, region, postal_code, country_code
-) values (
-  '30000000-0000-0000-0000-000000000001',
-  'Test',
-  'Donor',
-  'test@example.org',
-  'test@example.org',
-  '1 Main Street',
-  'Kissimmee',
-  'FL',
-  '34741',
-  'US'
+select throws_ok(
+  $$
+    insert into app_private.proceeds_policy_versions (
+      policy_id, version, lifecycle, calculation_method,
+      effective_from, effective_to, approved_at
+    ) values (
+      '20000000-0000-0000-0000-000000000001', 2, 'active',
+      'net_proceeds_share', '2026-06-01T00:00:00Z',
+      '2027-06-01T00:00:00Z', now()
+    )
+  $$,
+  '23P01',
+  null,
+  'active versions for one proceeds policy cannot overlap'
 );
-insert into app_private.donations (
-  id, public_id, client_submission_key, donor_contact_id, shipping_method,
-  selected_charity_pledge_id, selected_charity_name, tracking_nonce,
-  policy_version_snapshot_id, request_hash, claim_nonce
+
+insert into app_private.proceeds_policy_assignments (
+  id, policy_version_id, scope, scope_id, precedence,
+  effective_from, effective_to
 ) values (
-  '30000000-0000-0000-0000-000000000002',
-  'DBM-20260101-ABCDEF12',
-  'test-client-submission-key',
-  '30000000-0000-0000-0000-000000000001',
-  'label',
-  '30000000-0000-0000-0000-000000000003',
-  'Test Charity',
-  '30000000-0000-0000-0000-000000000004',
+  '20000000-0000-0000-0000-000000000003',
   '20000000-0000-0000-0000-000000000002',
-  repeat('d', 64),
-  '30000000-0000-0000-0000-000000000010'
+  'general', null, 10,
+  '2026-01-01T00:00:00Z', '2027-01-01T00:00:00Z'
 );
-insert into app_private.donation_devices (
-  id, donation_id, source, donor_device_key, donor_brand, donor_model,
-  donor_age, donor_condition, donor_storage, donor_powers_on, donor_unlocked
-) values (
-  '30000000-0000-0000-0000-000000000005',
-  '30000000-0000-0000-0000-000000000002',
-  'expected',
-  'test-device',
-  'Apple',
-  'iPhone 13',
-  '2-3 years',
-  'good',
-  '128 GB',
+
+select throws_ok(
+  $$
+    insert into app_private.proceeds_policy_assignments (
+      policy_version_id, scope, scope_id, precedence,
+      effective_from, effective_to
+    ) values (
+      '20000000-0000-0000-0000-000000000002',
+      'general', null, 10,
+      '2026-06-01T00:00:00Z', '2027-06-01T00:00:00Z'
+    )
+  $$,
+  '23P01',
+  null,
+  'equally ranked policy assignments cannot overlap'
+);
+
+select is(
+  (select count(*)::bigint from app_private.proceeds_policy_versions
+    where share_basis_points = 5000 and lifecycle = 'active'),
+  0::bigint,
+  'no universal active 50 percent proceeds policy is seeded'
+);
+select is(
+  (select count(*)::bigint from app_private.proceeds_policy_versions
+    where share_basis_points = 5000 and lifecycle = 'draft'),
+  1::bigint,
+  'local seed demonstrates 50 percent only as draft configuration'
+);
+
+select is(
+  api.is_reserved_route_slug('admin'),
   true,
-  true
+  'admin is permanently reserved'
 );
-insert into app_private.device_sale_results (
-  id, device_id, gross_amount_cents, channel, sold_at, recorded_by
-) values (
-  '30000000-0000-0000-0000-000000000006',
-  '30000000-0000-0000-0000-000000000005',
-  10000,
-  'test',
-  now(),
-  '30000000-0000-0000-0000-000000000007'
+select throws_ok(
+  $$
+    insert into app_private.campaign_route_aliases (
+      root_slug, campaign_id, canonical_slug
+    ) values (
+      'admin', '30000000-0000-0000-0000-000000000001', 'example-campaign'
+    )
+  $$,
+  '23514',
+  'campaign alias conflicts with a permanently reserved route',
+  'campaign aliases cannot collide with application routes'
 );
-insert into app_private.donation_costs (
-  id, donation_id, device_id, category, amount_cents, incurred_at, recorded_by
+insert into auth.users (
+  id, instance_id, aud, role, email, encrypted_password,
+  email_confirmed_at, created_at, updated_at
 ) values (
-  '30000000-0000-0000-0000-000000000008',
-  '30000000-0000-0000-0000-000000000002',
-  '30000000-0000-0000-0000-000000000005',
-  'shipping',
-  1000,
-  now(),
-  '30000000-0000-0000-0000-000000000007'
-);
-insert into app_private.proceeds_allocations (
-  id, donation_id, policy_version_id, beneficiary_pledge_id,
-  gross_cents, eligible_cost_cents, allocable_base_cents,
-  share_basis_points, allocated_cents, status, calculation_snapshot,
-  calculated_by, calculated_at
-) values (
-  '30000000-0000-0000-0000-000000000009',
-  '30000000-0000-0000-0000-000000000002',
-  '20000000-0000-0000-0000-000000000002',
   '30000000-0000-0000-0000-000000000003',
-  10000,
-  1000,
-  9000,
-  5000,
-  4500,
-  'calculated',
-  '{"test":true}'::jsonb,
-  '30000000-0000-0000-0000-000000000007',
-  now()
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated', 'route-test@example.com', '',
+  now(), now(), now()
+);
+insert into app_private.organizations (id,name,slug,status,created_by) values (
+  '30000000-0000-0000-0000-000000000002','Route Test','route-test','active',
+  '30000000-0000-0000-0000-000000000003'
+);
+insert into app_private.charities(id,pledge_id,canonical_name,status,verified_by,verified_at) values(
+  '30000000-0000-0000-0000-000000000004','3685b542-61d5-45da-9580-162dca725966',
+  'Route Test Charity','verified','30000000-0000-0000-0000-000000000003',now()
+);
+insert into app_private.organization_charities(organization_id,charity_id,status,verified_by,verified_at) values(
+  '30000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000004','verified',
+  '30000000-0000-0000-0000-000000000003',now()
+);
+insert into app_private.campaigns (
+  id,organization_id,slug,name,selected_charity_pledge_id,
+  selected_charity_name,charity_id,created_by
+) values (
+  '30000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000002',
+  'give-kids-the-world','Give Kids the World',
+  '3685b542-61d5-45da-9580-162dca725966','Route Test Charity','30000000-0000-0000-0000-000000000004',
+  '30000000-0000-0000-0000-000000000003'
+);
+select lives_ok(
+  $$
+    insert into app_private.campaign_route_aliases (
+      root_slug, campaign_id, canonical_slug
+    ) values (
+      'give-kids-the-world',
+      '30000000-0000-0000-0000-000000000001',
+      'give-kids-the-world'
+    )
+  $$,
+  'a safe root-level vanity alias can be reserved'
+);
+select throws_ok(
+  $$delete from app_private.reserved_route_slugs where slug = 'admin'$$,
+  '55000',
+  'permanent reserved route slugs cannot be removed or renamed',
+  'permanent route reservations cannot be deleted'
 );
 
+insert into app_private.audit_events (
+  id, actor, actor_ref, action_name, entity_type, entity_id
+) values (
+  '40000000-0000-0000-0000-000000000001',
+  'system', 'test', 'test.created', 'test_record',
+  '40000000-0000-0000-0000-000000000002'
+);
 select throws_ok(
   $$
-    update app_private.proceeds_allocations
-    set allocated_cents = 4000
-    where id = '30000000-0000-0000-0000-000000000009'
+    update app_private.audit_events
+    set reason_code = 'changed'
+    where id = '40000000-0000-0000-0000-000000000001'
   $$,
-  'allocation financial fields are immutable',
-  'allocation accounting cannot be silently edited'
+  '55000',
+  'audit_events is append-only',
+  'audit history cannot be updated'
 );
 
+insert into app_private.domain_events (
+  id, event_type, aggregate_type, aggregate_id,
+  aggregate_version, payload
+) values (
+  '50000000-0000-0000-0000-000000000001',
+  'test.created', 'test_record',
+  '50000000-0000-0000-0000-000000000002', 1,
+  '{"recordId":"50000000-0000-0000-0000-000000000002"}'::jsonb
+);
 select throws_ok(
   $$
-    update app_private.device_sale_results
-    set gross_amount_cents = 11000
-    where id = '30000000-0000-0000-000000000006'
+    update app_private.domain_events
+    set event_type = 'test.changed'
+    where id = '50000000-0000-0000-0000-000000000001'
   $$,
-  'append-only ledger rows cannot be updated',
-  'sales history cannot be rewritten'
+  '55000',
+  'domain_events is append-only',
+  'domain event history cannot be updated'
 );
 
+insert into app_private.outbox_events (
+  id, domain_event_id, handler_key, event_type, payload
+) values (
+  '50000000-0000-0000-0000-000000000003',
+  '50000000-0000-0000-0000-000000000001',
+  'test_handler', 'test.created',
+  '{"recordId":"50000000-0000-0000-0000-000000000002"}'::jsonb
+);
+
+select set_config('request.jwt.claim.role', '', true);
+select throws_ok(
+  $$select count(*) from api.claim_outbox_events('test-worker', 10, 60)$$,
+  '42501',
+  'service role required',
+  'outbox claim fails closed without a service claim'
+);
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+select results_eq(
+  $$select count(*) from api.claim_outbox_events('test-worker', 10, 60)$$,
+  array[1::bigint],
+  'the direct processor leases one due event'
+);
+select results_eq(
+  $$select count(*) from api.claim_outbox_events('second-worker', 10, 60)$$,
+  array[0::bigint],
+  'a leased event cannot be claimed concurrently'
+);
+select is(
+  api.complete_outbox_event(
+    '50000000-0000-0000-0000-000000000003', 'wrong-worker'
+  ),
+  false,
+  'another worker cannot complete the lease'
+);
+select is(
+  api.complete_outbox_event(
+    '50000000-0000-0000-0000-000000000003', 'test-worker'
+  ),
+  true,
+  'the lease owner can complete the event'
+);
+select is(
+  (
+    select status::text from app_private.outbox_events
+    where id = '50000000-0000-0000-0000-000000000003'
+  ),
+  'completed',
+  'outbox completion is persisted'
+);
+
+insert into app_private.action_decisions (
+  id, command_name, actor, actor_ref, risk, outcome,
+  rationale_code, input_hash, correlation_id
+) values (
+  '60000000-0000-0000-0000-000000000001',
+  'send_message', 'agent', 'test-agent', 'low',
+  'REQUIRE_APPROVAL', 'test_policy', repeat('a', 64),
+  '60000000-0000-0000-0000-000000000002'
+);
 select throws_ok(
   $$
-    delete from app_private.donation_costs
-    where id = '30000000-0000-0000-0000-000000000008'
+    update app_private.action_decisions
+    set outcome = 'ALLOW_AUTOMATICALLY'
+    where id = '60000000-0000-0000-0000-000000000001'
   $$,
-  'append-only ledger rows cannot be deleted',
-  'cost history cannot be erased'
+  '55000',
+  'action_decisions is append-only',
+  'recorded policy decisions cannot be rewritten'
 );
 
-select finish();
+select * from finish();
 rollback;
