@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(36);
+select plan(37);
 
 select has_schema('app_private', 'private operational schema exists');
 select has_schema('api', 'narrow API schema exists');
@@ -92,9 +92,10 @@ select is(
     from app_private.action_policy_rules
     where command_name = 'send_message'
       and actor = 'agent'
+      and target_type is null
   ),
   'REQUIRE_APPROVAL',
-  'beta email automation uses policy-configured approval'
+  'generic beta email automation uses policy-configured approval'
 );
 select is(
   (
@@ -139,6 +140,17 @@ insert into app_private.proceeds_policy_versions (
   '2026-01-01T00:00:00Z',
   '2027-01-01T00:00:00Z',
   now()
+);
+
+select throws_ok(
+  $$
+    update app_private.proceeds_policy_versions
+    set effective_from = '2025-01-01T00:00:00Z'
+    where id = '20000000-0000-0000-0000-000000000002'
+  $$,
+  '22023',
+  'policy version effective dates and eligibility are immutable',
+  'policy history cannot be rewritten'
 );
 
 select throws_ok(

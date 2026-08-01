@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "donate-by-mail",
   "compatibility_date": "2026-07-21",
-  "main": "src/worker.ts",
+  "main": "src/agentWorker.ts",
   "workers_dev": true,
   "routes": [
     {
