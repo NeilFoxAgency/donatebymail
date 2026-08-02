@@ -15,11 +15,21 @@ a server-computed SHA-256 content hash.
 
 ## Agent workflow
 
-The beta MCP endpoint exposes bounded tools for `list_articles`, `get_article`,
-`create_article_draft`, `update_article_content`, `schedule_article_publication`,
-and `publish_article`. Writes go through the semantic command policy engine and
-carry an idempotency key, correlation ID, exact target/revision IDs, and an
-audited execution result.
+The beta article connector is available at
+`https://mcp-beta.donatebymail.org/mcp/articles`. It is a dedicated MCP
+surface with Cloudflare Access managed OAuth; it exposes only
+`list_articles`, `get_article`, `create_article_draft`, `update_article_content`,
+`schedule_article_publication`, and `publish_article`. It does not expose
+donor, partner, support-email, financial, credential, or arbitrary SQL tools.
+Writes go through the semantic command policy engine and carry an idempotency
+key, correlation ID, exact target/revision IDs, and an audited execution result.
+
+To connect ChatGPT, an administrator enables developer mode, creates a custom
+MCP app, enters the endpoint above, selects OAuth, scans the tools, and tests
+the draft app before publishing it to the workspace. The Cloudflare Access
+policy permits only `tre@donatebymail.org`. ChatGPT may still ask for approval
+for write actions according to workspace app permissions and the active article
+policy.
 
 - Draft creation, revision creation, and future scheduling are automatically
   allowed by the beta policy when their risk classification matches.

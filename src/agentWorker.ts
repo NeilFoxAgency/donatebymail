@@ -52,6 +52,15 @@ const WRITE_ANNOTATIONS = {
   openWorldHint: false,
 };
 
+const ARTICLE_MCP_TOOL_NAMES = new Set([
+  "list_articles",
+  "get_article",
+  "create_article_draft",
+  "update_article_content",
+  "schedule_article_publication",
+  "publish_article",
+]);
+
 const SUPPORT_CATEGORIES = [
   "general_faq",
   "donation_status",
@@ -636,9 +645,18 @@ async function callTool(
   }
 }
 
-async function handleAgentMcp(request: Request, env: AgentWorkerEnv): Promise<Response> {
+function isTrustedArticleAccessRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.hostname === "mcp-beta.donatebymail.org"
+    && Boolean(request.headers.get("cf-access-jwt-assertion"));
+}
+
+async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly = false): Promise<Response> {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
-  if (!(await safeSecretEqual(bearer, env.AGENT_API_KEY)))
+  const authorized = articleOnly
+    ? isTrustedArticleAccessRequest(request)
+    : await safeSecretEqual(bearer, env.AGENT_API_KEY);
+  if (!authorized)
     return json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }, 401);
   if (request.method !== "POST")
     return new Response(null, { status: 405, headers: { allow: "POST" } });
@@ -660,16 +678,20 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv): Promise<Re
       result: {
         protocolVersion: "2025-11-25",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "donate-by-mail-operations", version: "0.3.0" },
-        instructions: "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
+        serverInfo: { name: articleOnly ? "donate-by-mail-article-publisher" : "donate-by-mail-operations", version: "0.4.0" },
+        instructions: articleOnly
+          ? "This connector is limited to Donate by Mail editorial content. Use typed article blocks only. Draft creation, revision creation, and future scheduling are policy-controlled; immediate publication remains approval-gated unless the active policy explicitly allows it. Do not request donor, partner, financial, credential, or arbitrary database data."
+          : "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
       },
     });
   if (rpc.method === "tools/list")
-    return json({ jsonrpc: "2.0", id, result: { tools: MCP_TOOLS } });
+    return json({ jsonrpc: "2.0", id, result: { tools: articleOnly ? MCP_TOOLS.filter((tool) => ARTICLE_MCP_TOOL_NAMES.has(tool.name)) : MCP_TOOLS } });
   if (rpc.method !== "tools/call" || !rpc.params?.name)
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
 
   try {
+    if (articleOnly && !ARTICLE_MCP_TOOL_NAMES.has(rpc.params.name))
+      throw new Error("article_connector_tool_not_allowed");
     const value = await callTool(rpc.params.name, rpc.params.arguments ?? {}, env);
     return toolResult(id, value);
   } catch (error) {
@@ -687,6 +709,8 @@ const originalWorker = worker as ExportedHandler<any>;
 export default {
   async fetch(request: Request, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp/articles")
+      return handleAgentMcp(request, env, true);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp")
       return handleAgentMcp(request, env);
     if (!originalWorker.fetch) throw new Error("worker_fetch_unavailable");

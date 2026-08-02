@@ -27,6 +27,18 @@ async function mcp(body: Record<string, unknown>, authorization = "Bearer test-a
   );
 }
 
+async function articleMcp(body: Record<string, unknown>, headers: Record<string, string> = { "cf-access-jwt-assertion": "test-access-jwt" }) {
+  return agentWorker.fetch(
+    new Request("https://mcp-beta.donatebymail.org/mcp/articles", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+    context,
+  );
+}
+
 describe("Donate by Mail agent MCP wrapper", () => {
   it("requires the agent bearer secret", async () => {
     const response = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize" }, "Bearer wrong-key");
@@ -53,5 +65,25 @@ describe("Donate by Mail agent MCP wrapper", () => {
     expect(names).toContain("publish_article");
     expect(names).not.toContain("arbitrary_database_query");
     expect(names).not.toContain("execute_disbursement");
+  });
+
+  it("requires a Cloudflare Access assertion on the article connector", async () => {
+    const response = await articleMcp({ jsonrpc: "2.0", id: 3, method: "initialize" }, {});
+    expect(response.status).toBe(401);
+  });
+
+  it("exposes only editorial tools on the article connector", async () => {
+    const response = await articleMcp({ jsonrpc: "2.0", id: 4, method: "tools/list" });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { result?: { tools?: Array<{ name: string }> } };
+    const names = body.result?.tools?.map((tool) => tool.name) ?? [];
+
+    expect(names).toEqual(expect.arrayContaining([
+      "list_articles", "get_article", "create_article_draft",
+      "update_article_content", "schedule_article_publication", "publish_article",
+    ]));
+    expect(names).not.toContain("find_donations");
+    expect(names).not.toContain("authorize_support_message");
+    expect(names).not.toContain("evaluate_semantic_command");
   });
 });

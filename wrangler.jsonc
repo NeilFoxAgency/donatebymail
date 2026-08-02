@@ -48,6 +48,10 @@
           "pattern": "beta.donatebymail.org",
           "custom_domain": true,
         },
+        {
+          "pattern": "mcp-beta.donatebymail.org",
+          "custom_domain": true,
+        },
       ],
       "secrets": {
         "required": [
