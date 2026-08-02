@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run security:secrets
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx wrangler deploy --env beta --dry-run
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Access-protected beta smoke
+        if: env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != ''
+        run: npm run smoke:beta
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx supabase start
+      - run: npm run db:reset
+      - run: npx supabase db lint --local --schema app_private,api --level warning --fail-on warning
+      - run: npx supabase db advisors --local --type all --level warn --fail-on warn
+      - run: npm run test:db
+      - name: Actual Worker + local Supabase integration
+        run: npm run test:integration
+      - if: always()
+        run: npm run db:stop
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

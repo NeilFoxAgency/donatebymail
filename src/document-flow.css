@@ -1,0 +1,215 @@
+.document-step .success-heading {
+  grid-template-columns: auto 1fr;
+}
+
+.document-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.document-steps > div {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  background: #edf3f8;
+  padding: 1.1rem;
+}
+
+.document-steps svg {
+  flex: 0 0 auto;
+  color: var(--navy);
+}
+
+.document-steps span,
+.document-steps strong,
+.document-steps small {
+  display: block;
+}
+
+.document-steps small {
+  margin-top: 0.2rem;
+  color: var(--muted);
+}
+
+.print-document.document-bundle {
+  display: grid;
+  gap: 2rem;
+  overflow: visible;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.document-page {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  padding: 3rem;
+  box-shadow: 0 20px 60px -38px rgba(23, 38, 58, 0.6);
+}
+
+.document-logo {
+  display: block;
+  width: min(16rem, 42vw);
+  height: auto;
+  max-height: 7rem;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.document-instruction {
+  margin: -0.5rem 0 1.5rem;
+  color: var(--muted);
+}
+
+.shipping-label-card {
+  min-height: 29rem;
+  margin-top: 2rem;
+  border: 3px solid var(--ink);
+  padding: 2rem;
+}
+
+.shipping-label-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.return-address p {
+  margin-top: 0.35rem;
+}
+
+.destination-address {
+  width: min(30rem, 75%);
+  margin: 3.5rem 0 2rem auto;
+}
+
+.destination-address p {
+  margin-top: 0.45rem;
+  font-size: 1.55rem;
+  line-height: 1.5;
+}
+
+.destination-address strong {
+  font-size: 1.8rem;
+}
+
+.label-reference {
+  margin: 3rem 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+@media (max-width: 650px) {
+  .document-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .document-page {
+    padding: 1.25rem;
+  }
+
+  .destination-address {
+    width: 90%;
+    margin-top: 2.5rem;
+  }
+
+  .destination-address p,
+  .destination-address strong {
+    font-size: 1.1rem;
+  }
+
+  .shipping-label-card {
+    min-height: 23rem;
+    padding: 1.25rem;
+  }
+}
+
+@media print {
+  .print-document.document-bundle {
+    display: block;
+  }
+
+  .document-page {
+    min-height: 0;
+    overflow: visible;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .document-page + .document-page {
+    margin-top: 0;
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .document-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .packing-slip-page h1 {
+    margin: 0.4rem 0 0.1rem;
+    font-size: 2rem;
+  }
+
+  .packing-slip-page .document-instruction {
+    margin: 0 0 0.35rem;
+  }
+
+  .packing-slip-page {
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .packing-slip-page .doc-rule {
+    margin-bottom: 0.65rem;
+  }
+
+  .packing-slip-page header {
+    padding-bottom: 0.65rem;
+  }
+
+  .packing-slip-page .document-logo {
+    width: 11rem;
+    max-height: 4.75rem;
+  }
+
+  .packing-slip-page h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.1rem;
+  }
+
+  .packing-slip-page .doc-two {
+    padding: 0.5rem 0;
+  }
+
+  .packing-slip-page .device-line {
+    padding: 0.3rem 0;
+  }
+
+  .packing-slip-page .doc-checks {
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+  }
+
+  .packing-slip-page .doc-checks > div {
+    padding: 0.5rem;
+  }
+
+  .packing-slip-page .doc-note {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .shipping-label-card {
+    min-height: 6in;
+  }
+}

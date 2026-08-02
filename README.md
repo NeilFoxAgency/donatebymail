@@ -10,7 +10,7 @@ Donate by Mail is a U.S. 501(c)(3) public charity with a mission to turn unused 
 - Cloudflare Worker submission endpoint and administrator email notification
 - Complete donor packet and browser-saved draft
 - Printable packing slip
-- Pending acknowledgment preview that excludes estimated tax value
+- Printable donor packet with a packing slip and shipping label
 - Phone data-preparation and security guidance
 - Mission, nonprofit-program, resource, transparency, contact, privacy, terms, and accessibility pages
 - Crawlable landing pages suitable for mission-focused Google Ad Grants campaigns
@@ -44,7 +44,10 @@ VITE_PLEDGE_ENV=production
 
 The partner key is intended for frontend use. Do not expose the secret Pledge API key. Full setup, local testing, optional metadata lookup, and administrator-notification behavior are documented in [`docs/pledge-charity-selection.md`](docs/pledge-charity-selection.md).
 
-This version does not send money through Pledge and does not implement payouts, webhooks, or transaction tracking.
+Pledge provides nonprofit search and selection; it is not a payment rail. The beta
+stores donation, shipment, device-processing, proceeds-policy, and manual finance
+records, but it does not move money automatically. Documentation is issued only
+after staff verify physical receipt and the device.
 
 ## Cloudflare deployment
 
@@ -55,15 +58,52 @@ Before deployment:
 3. Verify the sender and destination configured in `wrangler.jsonc`.
 4. Optionally configure richer Pledge metadata lookup with `npx wrangler secret put PLEDGE_API_KEY`.
 
-Then deploy:
+Then deploy through the explicit environment command:
 
 ```bash
-npm run deploy
+npm run deploy:production
 ```
+
+### Beta environment
+
+The isolated beta Worker is deployed to `beta.donatebymail.org`. Beta responses
+include an `X-Robots-Tag` header that prevents the testing copy from being
+indexed. Deploying beta does not update the production Worker or its domains.
+
+The beta environment has its own Cloudflare secrets. Configure each secret once
+through Wrangler's secure prompt (never through a Vite variable or committed
+file):
+
+```bash
+npx wrangler secret put BREVO_API_KEY --env beta
+npx wrangler secret put PLEDGE_API_KEY --env beta
+npx wrangler secret put SUPABASE_URL --env beta
+npx wrangler secret put SUPABASE_PUBLISHABLE_KEY --env beta
+npx wrangler secret put SUPABASE_SECRET_KEY --env beta
+npx wrangler secret put DONATION_TRACKING_SECRET --env beta
+npx wrangler secret put BFF_SESSION_SECRET --env beta
+npx wrangler secret put AGENT_API_KEY --env beta
+```
+
+Validate or deploy the current build to beta:
+
+```bash
+npm run deploy:beta:dry-run
+npm run deploy:beta
+```
+
+Beta intentionally does not use Turnstile so its workflows can be exercised by
+automated testing. It is synthetic-data-only and uses server-side rate limits
+for anonymous donation and magic-link requests. Turnstile remains a production
+cutover requirement for anonymous write endpoints.
 
 ## Security and privacy
 
-See `public/.well-known/security.txt` and the project documentation. Drafts are stored in the donor's browser. Final form data is validated by the Worker and emailed to the configured Donate by Mail administrator; it is not stored in a new database by this feature.
+See `public/.well-known/security.txt`, `SECURITY.md`, and the threat model. Gen2
+beta donations persist in private Supabase tables. Routine administrator email
+is redacted; authorized staff retrieve contact details from the authenticated
+workspace. Supabase sessions are exchanged by the Worker and kept out of
+browser-readable storage.
 
 ## Google Ad Grants readiness
 
