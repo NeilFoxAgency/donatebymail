@@ -1,6 +1,6 @@
 # Google Ad Grants website readiness
 
-Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
+Reviewed August 2, 2026 against current official Google for Nonprofits guidance.
 
 ## Website requirements addressed
 
@@ -18,6 +18,7 @@ Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
 | No excessive commercial activity | The site states that Donate by Mail is not a trade-in marketplace, donors are not paid, and estimates are informational. No advertising or affiliate links are present. |
 | Contact and policies | Contact, Privacy, Terms, Accessibility, and Transparency pages are linked site-wide. |
 | Search discovery | `robots.txt`, `sitemap.xml`, canonical metadata, unique page descriptions, and NGO structured data are included. |
+| Ongoing original content | `/articles` provides a crawlable editorial section with typed, human-readable articles, per-article metadata, canonical URLs, and Article structured data. Publishing is versioned and scheduled through the beta agent CMS; drafts never appear publicly. |
 
 ## Final preview validation
 
@@ -44,6 +45,24 @@ Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
 6. Verify Google for Nonprofits eligibility through Goodstack.
 7. Build mission-specific campaigns with relevant geography, at least two unique sitelinks, tightly themed ad groups, specific keywords, and conversion-based bidding where required.
 8. Maintain current Ad Grants account-level policies after activation.
+
+## Article publishing workflow
+
+Articles are stored as immutable revisions in the private Supabase schema and
+served through narrow public read RPCs. The Workspace Agent can list and read
+published articles, create drafts, update content, and schedule an exact
+revision. Immediate publication remains approval-gated by policy; scheduled
+publication runs from the exact revision selected by the agent. Content blocks
+are validated server-side (paragraphs, headings, lists, quotes, and safe links)
+and rendered without raw HTML injection. This keeps the publishing surface
+auditable while leaving room to allow low-risk publication automatically after
+the beta has been tested.
+
+This is readiness work, not a claim of Google Ad Grants approval. The account
+still needs organization verification, compliant campaigns, conversion
+tracking, and ongoing policy maintenance. See Google's [website policy](https://support.google.com/nonprofits/answer/1657899)
+and [Ad Grants compliance guidance](https://support.google.com/nonprofits/answer/9314402)
+for the current external requirements.
 
 ## Official Google sources
 

@@ -241,6 +241,84 @@ const MCP_TOOLS: McpTool[] = [
     annotations: WRITE_ANNOTATIONS,
   },
   {
+    name: "list_articles",
+    description: "List published Donate by Mail articles. Drafts, schedules, and internal workflow fields are never exposed.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    annotations: READ_ONLY_ANNOTATIONS,
+  },
+  {
+    name: "get_article",
+    description: "Read one published article by its safe canonical slug, including typed content blocks and SEO metadata.",
+    inputSchema: {
+      type: "object", additionalProperties: false, required: ["slug"],
+      properties: { slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 } },
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  },
+  {
+    name: "create_article_draft",
+    description: "Create an audited article draft using safe typed blocks. The draft is not public until explicitly scheduled or published.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["slug", "title", "excerpt", "contentBlocks", "idempotencyKey"],
+      properties: {
+        slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 },
+        title: { type: "string", minLength: 1, maxLength: 180 },
+        excerpt: { type: "string", minLength: 1, maxLength: 500 },
+        contentBlocks: { type: "array", maxItems: 50 },
+        seoTitle: { type: "string", maxLength: 180 },
+        seoDescription: { type: "string", maxLength: 320 },
+        authorName: { type: "string", maxLength: 120 },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "update_article_content",
+    description: "Create a new immutable revision for an existing article. This changes no published page until a revision is scheduled or published.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "title", "excerpt", "contentBlocks", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, title: { type: "string", minLength: 1, maxLength: 180 },
+        excerpt: { type: "string", minLength: 1, maxLength: 500 }, contentBlocks: { type: "array", maxItems: 50 },
+        seoTitle: { type: "string", maxLength: 180 }, seoDescription: { type: "string", maxLength: 320 },
+        authorName: { type: "string", maxLength: 120 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "schedule_article_publication",
+    description: "Schedule one exact article revision for future publication. The scheduler publishes only that revision after the policy-approved time.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "revisionId", "scheduledAt", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, revisionId: { type: "string", format: "uuid" },
+        scheduledAt: { type: "string", format: "date-time" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "publish_article",
+    description: "Request publication of one exact article revision. The active policy normally requires approval; this tool never bypasses that decision.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "revisionId", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, revisionId: { type: "string", format: "uuid" },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
     name: "evaluate_semantic_command",
     description: "Evaluate a non-email bounded business command under the active policy. This records a decision but does not execute physical, financial, credential, role, or deployment actions.",
     inputSchema: {
@@ -250,7 +328,7 @@ const MCP_TOOLS: McpTool[] = [
       properties: {
         command: {
           type: "string",
-          enum: ["update_campaign_content", "publish_campaign_revision", "change_donation_status", "create_partner_lead", "create_internal_note"],
+          enum: ["update_campaign_content", "publish_campaign_revision", "change_donation_status", "create_partner_lead", "create_internal_note", "create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"],
         },
         targetType: { type: "string", minLength: 1, maxLength: 80 },
         targetId: { type: "string", format: "uuid" },
@@ -318,6 +396,36 @@ function stringArray(args: Record<string, unknown>, key: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
     throw new Error(`invalid_${key}`);
   return value as string[];
+}
+
+async function runSemanticCommand(
+  env: AgentWorkerEnv,
+  command: string,
+  targetType: string,
+  targetId: string | null,
+  risk: string,
+  facts: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  idempotencyKey: string,
+  correlationId?: string | null,
+): Promise<unknown> {
+  if (!isSemanticCommand(command) || !isRiskLevel(risk)) throw new Error("invalid_semantic_command");
+  const inputHash = await sha256Hex(canonicalAuthorizationInput({
+    agentIdentity: AGENT_IDENTITY, command, targetType, targetId, risk, facts, payload,
+  }));
+  const decision = await supabaseRpc<Record<string, unknown>>(env, "evaluate_agent_command", {
+    agent_identity: AGENT_IDENTITY, command_value: command, target_kind: targetType,
+    target_value: targetId, risk_value: risk, facts, input_hash_value: inputHash,
+    correlation_value: correlationId || crypto.randomUUID(), idempotency_value: idempotencyKey,
+  });
+  if (decision.outcome !== "ALLOW_AUTOMATICALLY" || decision.replayed || !decision.decisionId) return { decision, execution: null };
+  const execution = ["create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"].includes(command)
+    ? await supabaseRpc(env, "agent_execute_article_command", {
+      decision_id_value: decision.decisionId, agent_identity: AGENT_IDENTITY,
+      command_value: command, target_id_value: targetId, payload_value: payload,
+    })
+    : null;
+  return { decision, execution };
 }
 
 async function supabaseRpc<T>(
@@ -468,6 +576,30 @@ async function callTool(
         candidate_thread_id: requiredString(args, "threadId"),
         status_value: requiredString(args, "status"),
       });
+    case "list_articles":
+      return supabaseRpc(env, "get_published_articles", {});
+    case "get_article":
+      return supabaseRpc(env, "get_published_article", { candidate_slug: requiredString(args, "slug") });
+    case "create_article_draft":
+      return runSemanticCommand(env, "create_article_draft", "article", null, "low", {}, {
+        slug: requiredString(args, "slug"), title: requiredString(args, "title"), excerpt: requiredString(args, "excerpt"),
+        contentBlocks: Array.isArray(args.contentBlocks) ? args.contentBlocks : [], seoTitle: optionalString(args, "seoTitle"),
+        seoDescription: optionalString(args, "seoDescription"), authorName: optionalString(args, "authorName"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "update_article_content":
+      return runSemanticCommand(env, "update_article_content", "article", requiredString(args, "articleId"), "low", {}, {
+        title: requiredString(args, "title"), excerpt: requiredString(args, "excerpt"),
+        contentBlocks: Array.isArray(args.contentBlocks) ? args.contentBlocks : [], seoTitle: optionalString(args, "seoTitle"),
+        seoDescription: optionalString(args, "seoDescription"), authorName: optionalString(args, "authorName"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "schedule_article_publication":
+      return runSemanticCommand(env, "schedule_article_publication", "article", requiredString(args, "articleId"), "moderate", {}, {
+        revisionId: requiredString(args, "revisionId"), scheduledAt: requiredString(args, "scheduledAt"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "publish_article":
+      return runSemanticCommand(env, "publish_article", "article", requiredString(args, "articleId"), "moderate", {}, {
+        revisionId: requiredString(args, "revisionId"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
     case "evaluate_semantic_command": {
       const command = requiredString(args, "command");
       const risk = requiredString(args, "risk");

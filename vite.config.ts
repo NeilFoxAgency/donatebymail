@@ -11,7 +11,7 @@ export default defineConfig({
     base: '/',
     build: {
         rollupOptions: {
-            input: ['index.html', 'donate-phone.html'],
+            input: ['index.html', 'donate-phone.html', 'articles.html'],
             maxParallelFileOps: 128,
         },
     },

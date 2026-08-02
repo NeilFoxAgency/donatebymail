@@ -10,6 +10,7 @@ import "./document-flow.css";
 import "./social-footer.css";
 import "./operations.css";
 import "./gen2/gen2.css";
+import "./articles.css";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

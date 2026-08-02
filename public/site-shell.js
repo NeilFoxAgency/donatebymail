@@ -15,10 +15,11 @@
       ["Prepare your phone", "/prepare-phone.html"],
       ["For nonprofits", "/for-nonprofits.html"],
       ["Help and FAQs", "/resources.html"],
+      ["Articles", "/articles"],
       ["About", "/about.html"],
     ],
-    current = location.pathname.split("/").pop() || "index.html",
-    active = (h) => current === h.replace("/", ""),
+    currentPath = location.pathname.replace(/\/$/, "") || "/",
+    active = (h) => h === "/articles" ? currentPath === "/articles" || currentPath === "/articles.html" || currentPath.startsWith("/articles/") : currentPath === h.replace(/\.html$/, "") || currentPath === h,
     brand =
       '<a class="site-brand-logo" href="/" aria-label="Donate by Mail home"><img src="/resources/donate-by-mail-logo.png" alt="Donate by Mail"></a>',
     accountLink = '<a class="account-nav-link" href="/login">Log in</a>',
@@ -39,7 +40,7 @@
       if (h && !owned(h) && !h.dataset.sharedShell) {
         h.dataset.sharedShell = "true";
         h.className = "site-header";
-        h.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${nav}</nav>${accountLink}<button class="menu-button" type="button" aria-expanded="false" aria-label="Open menu">Menu</button></div><nav class="mobile-nav" aria-label="Mobile navigation" hidden>${nav}${accountLink}</nav>`;
+        h.innerHTML = `<div class="header-inner">${brand}<nav class="desktop-nav" aria-label="Primary navigation">${nav}</nav>${accountLink}<button class="menu-button" type="button" aria-expanded="false" aria-controls="mobile-navigation" aria-label="Open menu">Menu</button></div><nav id="mobile-navigation" class="mobile-nav" aria-label="Mobile navigation" hidden>${nav}${accountLink}</nav>`;
         const b = h.querySelector(".menu-button"),
           m = h.querySelector(".mobile-nav");
         b?.addEventListener("click", () => {
@@ -67,7 +68,7 @@
       if (f && !owned(f) && !f.dataset.sharedShell) {
         f.dataset.sharedShell = "true";
         f.className = "site-footer";
-        f.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:tre@donatebymail.org">tre@donatebymail.org</a></p>${social}</div><div><h2>Get started</h2><a href="/donate-phone.html">Donate a phone</a><a href="/prepare-phone.html">Prepare your phone</a><a href="/phone-drives.html">Host a phone drive</a><a href="/get-involved.html">Get involved</a><a href="/receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="/how-it-works.html">How it works</a><a href="/for-nonprofits.html">For nonprofits</a><a href="/resources.html">Help and FAQs</a><a href="/transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="/about.html">About us</a><a href="/team.html">Our team</a><a href="/contact.html">Contact</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><a href="/accessibility.html">Accessibility</a></div></div>`;
+        f.innerHTML = `<div class="footer-inner"><div>${brand}<p>Turning unused phones into funding for meaningful causes through a clear mail-in process.</p><p><strong>U.S. 501(c)(3) public charity · EIN 92-1515120</strong><br><a href="mailto:tre@donatebymail.org">tre@donatebymail.org</a></p>${social}</div><div><h2>Get started</h2><a href="/donate-phone.html">Donate a phone</a><a href="/prepare-phone.html">Prepare your phone</a><a href="/phone-drives.html">Host a phone drive</a><a href="/get-involved.html">Get involved</a><a href="/receipts.html">Receipts and documents</a></div><div><h2>Learn</h2><a href="/how-it-works.html">How it works</a><a href="/for-nonprofits.html">For nonprofits</a><a href="/resources.html">Help and FAQs</a><a href="/articles">Articles</a><a href="/transparency.html">Transparency</a></div><div><h2>Organization and policies</h2><a href="/about.html">About us</a><a href="/team.html">Our team</a><a href="/contact.html">Contact</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><a href="/accessibility.html">Accessibility</a></div></div>`;
       }
     } finally {
       busy = false;

@@ -48,6 +48,9 @@ describe("Donate by Mail agent MCP wrapper", () => {
     expect(names).toContain("authorize_support_message");
     expect(names).toContain("record_outbound_message");
     expect(names).toContain("get_donation_support_snapshot");
+    expect(names).toContain("create_article_draft");
+    expect(names).toContain("schedule_article_publication");
+    expect(names).toContain("publish_article");
     expect(names).not.toContain("arbitrary_database_query");
     expect(names).not.toContain("execute_disbursement");
   });

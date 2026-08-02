@@ -68,4 +68,10 @@ describe("donor-first homepage funnel", () => {
     expect(llms).toContain("Donors pay their chosen carrier for postage");
     expect(llms).toContain("does not send money through Pledge");
   });
+
+  it("keeps the editorial surface discoverable without competing with the donor CTA", () => {
+    expect(home).toContain('href="/articles"');
+    expect(metadata).toContain('application/ld+json');
+    expect(metadata).toContain('"@type":"Organization"');
+  });
 });

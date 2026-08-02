@@ -48,6 +48,7 @@ import { DonorAccountPage } from "./gen2/DonorAccountPage";
 import { PartnerPage } from "./gen2/PartnerPage";
 import { CampaignPage } from "./gen2/CampaignPage";
 import { AccountGatewayPage, AccountSettingsPage } from "./gen2/AccountGatewayPage";
+import { ArticlesPage } from "./gen2/ArticlesPage";
 type SubmissionResponse = {
   ok: boolean;
   message?: string;
@@ -307,10 +308,11 @@ function Header() {
       ["Prepare your phone", "/prepare-phone.html"],
       ["For nonprofits", "/for-nonprofits.html"],
       ["Help and FAQs", "/resources.html"],
+      ["Articles", "/articles"],
       ["About", "/about.html"],
     ],
-    current = window.location.pathname.split("/").pop() || "index.html",
-    active = (h: string) => current === h.replace("/", "");
+    currentPath = window.location.pathname.replace(/\/$/, "") || "/",
+    active = (h: string) => h === "/articles" ? currentPath === "/articles" || currentPath === "/articles.html" || currentPath.startsWith("/articles/") : currentPath === h.replace(/\.html$/, "") || currentPath === h;
   useEffect(() => {
     fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
       .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
@@ -343,13 +345,14 @@ function Header() {
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
+            aria-controls="mobile-navigation"
             aria-label={open ? "Close menu" : "Open menu"}
           >
             {open ? "Close" : "Menu"}
           </button>
         </div>
         {open && (
-          <nav className="mobile-nav" aria-label="Mobile navigation">
+          <nav id="mobile-navigation" className="mobile-nav" aria-label="Mobile navigation">
             {links.map(([l, h], i) => (
               <a
                 aria-current={active(h) ? "page" : undefined}
@@ -441,6 +444,7 @@ function Footer() {
           <a href="/how-it-works.html">How it works</a>
           <a href="/for-nonprofits.html">For nonprofits</a>
           <a href="/resources.html">Help and FAQs</a>
+          <a href="/articles">Articles</a>
           <a href="/transparency.html">Transparency</a>
         </div>
         <div>
@@ -1774,6 +1778,11 @@ function App() {
     return <div className="page"><Header /><AccountSettingsPage /><Footer /></div>;
   if (path === "/partner" || path === "/partner/")
     return <div className="page"><Header /><PartnerPage /><Footer /></div>;
+  if (path === "/articles" || path === "/articles/" || path === "/articles.html")
+    return <div className="page"><Header /><ArticlesPage /><Footer /></div>;
+  const articleMatch = path.match(/^\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+  if (articleMatch)
+    return <div className="page"><Header /><ArticlesPage slug={articleMatch[1]} /><Footer /></div>;
   const campaignMatch = path.match(/^\/c\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
   if (campaignMatch)
     return <div className="page"><Header /><CampaignPage slug={campaignMatch[1]} /><Footer /></div>;

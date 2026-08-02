@@ -19,6 +19,7 @@
 - How it works: https://donatebymail.org/how-it-works.html
 - Prepare your phone: https://donatebymail.org/prepare-phone.html
 - Help and FAQs: https://donatebymail.org/resources.html
+- Articles: https://donatebymail.org/articles
 - Receipts and documents: https://donatebymail.org/receipts.html
 - For nonprofits: https://donatebymail.org/for-nonprofits.html
 - Transparency: https://donatebymail.org/transparency.html
@@ -36,3 +37,4 @@
 - Donate by Mail does not assign fair market value to donated property.
 - Device estimates and outcomes are not guaranteed.
 - The team's prior $78,000-plus fundraising experience predates Donate by Mail and should not be described as money raised by this phone-donation program.
+- Articles are published as reviewed, versioned content; unpublished drafts and schedules are not public.

@@ -308,3 +308,5 @@
     padding: 3rem 1.25rem;
   }
 }
+:where(a, button, input, select, textarea, summary):focus-visible{outline:3px solid #f1b24a;outline-offset:3px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

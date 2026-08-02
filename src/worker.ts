@@ -1311,6 +1311,12 @@ async function executeAllowedAgentCommand(
   decision: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
   if (decision.replayed || decision.outcome !== "ALLOW_AUTOMATICALLY" || !decision.decisionId || !isSemanticCommand(input.command)) return null;
+  if (["create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"].includes(input.command)) {
+    return await supabaseRpc<Record<string, unknown>>(env, "agent_execute_article_command", {
+      decision_id_value: decision.decisionId, agent_identity: input.agentIdentity,
+      command_value: input.command, target_id_value: input.targetId, payload_value: input.payload,
+    });
+  }
   return await supabaseRpc<Record<string, unknown>>(env, "agent_execute_command", {
     decision_id_value: decision.decisionId, agent_identity: input.agentIdentity,
     command_value: input.command, target_id_value: input.targetId, payload_value: input.payload,
@@ -1391,10 +1397,12 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
     { name: "get_donation_status", description: "Get donor-safe current donation status, shipment last four, devices, charity, and status history without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_donation_history", description: "Get the donor-visible status history for one donation without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_campaign", description: "Get the currently published public campaign content by canonical slug.", inputSchema: { type: "object", required: ["slug"], properties: { slug: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "list_articles", description: "List published articles without exposing drafts or internal workflow fields.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_article", description: "Get one published article by canonical slug.", inputSchema: { type: "object", required: ["slug"], properties: { slug: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_campaign_metrics", description: "Get aggregate campaign donation and event metrics without donor PII.", inputSchema: { type: "object", required: ["campaignId"], properties: { campaignId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_partner_context", description: "Get one partner organization's campaigns, verified charities, and aggregate metrics without donor PII.", inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "evaluate_semantic_command", description: "Evaluate and, when policy allows, execute a bounded Donate by Mail command. This does not provide arbitrary database access.", inputSchema: { type: "object", additionalProperties: false, required: ["command", "targetType", "risk", "idempotencyKey"], properties: {
-      command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] }, targetType: { type: "string" }, targetId: { type: "string", format: "uuid" }, risk: { type: "string", enum: RISK_LEVELS }, facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
+      command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note","create_article_draft","update_article_content","schedule_article_publication","publish_article"] }, targetType: { type: "string" }, targetId: { type: "string", format: "uuid" }, risk: { type: "string", enum: RISK_LEVELS }, facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
     } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
   ] } });
   if (rpc.method === "tools/call") {
@@ -1413,6 +1421,15 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
         if (!slug) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "slug is required" } });
         const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_public_campaign", { campaign_slug: slug });
         return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Campaign not found" } });
+      }
+      if (name === "list_articles") {
+        return mcpToolResult(id, await supabaseRpc(env, "get_published_articles", {}));
+      }
+      if (name === "get_article") {
+        const slug = stringValue(args.slug);
+        if (!slug) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "slug is required" } });
+        const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: slug });
+        return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Article not found" } });
       }
       if (name === "get_campaign_metrics" || name === "get_partner_context") {
         const resourceId = stringValue(name === "get_campaign_metrics" ? args.campaignId : args.organizationId);
@@ -1460,6 +1477,11 @@ export async function processOutbox(env: WorkerEnv): Promise<void> {
   }
 }
 
+export async function processScheduledArticles(env: WorkerEnv): Promise<void> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return;
+  await supabaseRpc(env, "publish_due_articles", {});
+}
+
 async function routeRequest(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/donations") {
@@ -1502,6 +1524,16 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp") {
       try { return await handleMcp(request, env); }
       catch { return json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null }, 500); }
+    }
+    if (request.method === "GET" && url.pathname === "/api/articles") {
+      const articles = await supabaseRpc<unknown[]>(env, "get_published_articles", {});
+      return json({ ok: true, articles });
+    }
+    const publicArticle = url.pathname.match(/^\/api\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+    if (request.method === "GET" && publicArticle) {
+      const article = await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: publicArticle[1] });
+      if (!article) return json({ ok: false, message: "Article not found." }, 404);
+      return json({ ok: true, article });
     }
     const publicCampaign = url.pathname.match(/^\/api\/campaigns\/([a-z0-9-]+)$/);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && publicCampaign) {
@@ -1594,6 +1626,7 @@ export default {
     return hardened(await routeRequest(request, env), request, env);
   },
   async scheduled(_controller: ScheduledController, env: WorkerEnv): Promise<void> {
+    await processScheduledArticles(env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta") await processOutbox(env);
   },
 } satisfies ExportedHandler<WorkerEnv>;
