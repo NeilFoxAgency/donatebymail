@@ -14,6 +14,7 @@ type JsonRpcRequest = {
   id?: string | number | null;
   method?: string;
   params?: {
+    protocolVersion?: string;
     name?: string;
     arguments?: Record<string, unknown>;
   };
@@ -21,8 +22,12 @@ type JsonRpcRequest = {
 
 type McpTool = {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  securitySchemes?: Array<Record<string, unknown>>;
+  _meta?: { securitySchemes?: Array<Record<string, unknown>> };
   annotations: {
     readOnlyHint: boolean;
     destructiveHint: boolean;
@@ -32,11 +37,19 @@ type McpTool = {
 };
 
 const AGENT_IDENTITY = "donate-by-mail-operations-agent-v1";
+// ChatGPT's current custom-app scanner supports the June 2025 MCP
+// Streamable HTTP protocol. Keep this explicit rather than advertising a
+// newer draft version that clients may treat as unsupported.
+const MCP_PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set(["2025-11-25", "2025-06-18", "2025-03-26"]);
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
+  "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
 };
+
+const ARTICLE_OAUTH_SECURITY = [{ type: "oauth2", scopes: [] }];
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -51,6 +64,129 @@ const WRITE_ANNOTATIONS = {
   idempotentHint: true,
   openWorldHint: false,
 };
+
+// Keep article content as a deliberately small, JSON-Schema-described union.
+// Besides making validation explicit at the command boundary, the concrete
+// `items` schema is important for MCP clients that inspect tool schemas before
+// registering write-capable tools (an array without `items` is too ambiguous
+// for some client scanners).
+const ARTICLE_BLOCK_SCHEMA = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "text"],
+      properties: {
+        type: { type: "string", enum: ["paragraph", "quote"] },
+        text: { type: "string", minLength: 1, maxLength: 5000 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "level", "text"],
+      properties: {
+        type: { type: "string", enum: ["heading"] },
+        level: { type: "integer", enum: [2, 3, 4] },
+        text: { type: "string", minLength: 1, maxLength: 5000 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "ordered", "items"],
+      properties: {
+        type: { type: "string", enum: ["list"] },
+        ordered: { type: "boolean" },
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: { type: "string", minLength: 1, maxLength: 1000 },
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "label", "href"],
+      properties: {
+        type: { type: "string", enum: ["link"] },
+        label: { type: "string", minLength: 1, maxLength: 500 },
+        href: { type: "string", maxLength: 1000 },
+      },
+    },
+  ],
+} as const;
+
+const ARTICLE_LIST_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    articles: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", format: "uuid" },
+          slug: { type: "string" },
+          title: { type: "string" },
+          excerpt: { type: "string" },
+          authorName: { type: "string" },
+          publishedAt: { type: "string", format: "date-time" },
+          seoTitle: { type: "string" },
+          seoDescription: { type: "string" },
+        },
+      },
+    },
+  },
+  required: ["articles"],
+} as const;
+const ARTICLE_DETAIL_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    article: {
+      oneOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: { type: "string", format: "uuid" },
+            slug: { type: "string" },
+            title: { type: "string" },
+            excerpt: { type: "string" },
+            contentBlocks: { type: "array", items: ARTICLE_BLOCK_SCHEMA },
+            authorName: { type: "string" },
+            publishedAt: { type: "string", format: "date-time" },
+            seoTitle: { type: "string" },
+            seoDescription: { type: "string" },
+            contentHash: { type: "string" },
+            revisionId: { type: "string", format: "uuid" },
+            version: { type: "integer" },
+          },
+        },
+      ],
+    },
+  },
+  required: ["article"],
+} as const;
+const ARTICLE_COMMAND_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decision: { type: "object", additionalProperties: true },
+    execution: {
+      oneOf: [
+        { type: "null" },
+        { type: "object", additionalProperties: true },
+      ],
+    },
+  },
+  required: ["decision", "execution"],
+} as const;
 
 const ARTICLE_MCP_TOOL_NAMES = new Set([
   "list_articles",
@@ -251,21 +387,30 @@ const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "list_articles",
+    title: "List published articles",
     description: "List published Donate by Mail articles. Drafts, schedules, and internal workflow fields are never exposed.",
     inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    outputSchema: ARTICLE_LIST_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: READ_ONLY_ANNOTATIONS,
   },
   {
     name: "get_article",
+    title: "Get a published article",
     description: "Read one published article by its safe canonical slug, including typed content blocks and SEO metadata.",
     inputSchema: {
       type: "object", additionalProperties: false, required: ["slug"],
       properties: { slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 } },
     },
+    outputSchema: ARTICLE_DETAIL_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: READ_ONLY_ANNOTATIONS,
   },
   {
     name: "create_article_draft",
+    title: "Create an article draft",
     description: "Create an audited article draft using safe typed blocks. The draft is not public until explicitly scheduled or published.",
     inputSchema: {
       type: "object", additionalProperties: false,
@@ -274,7 +419,7 @@ const MCP_TOOLS: McpTool[] = [
         slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 },
         title: { type: "string", minLength: 1, maxLength: 180 },
         excerpt: { type: "string", minLength: 1, maxLength: 500 },
-        contentBlocks: { type: "array", maxItems: 50 },
+        contentBlocks: { type: "array", maxItems: 50, items: ARTICLE_BLOCK_SCHEMA },
         seoTitle: { type: "string", maxLength: 180 },
         seoDescription: { type: "string", maxLength: 320 },
         authorName: { type: "string", maxLength: 120 },
@@ -282,26 +427,34 @@ const MCP_TOOLS: McpTool[] = [
         correlationId: { type: "string", format: "uuid" },
       },
     },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: WRITE_ANNOTATIONS,
   },
   {
     name: "update_article_content",
+    title: "Update article content",
     description: "Create a new immutable revision for an existing article. This changes no published page until a revision is scheduled or published.",
     inputSchema: {
       type: "object", additionalProperties: false,
       required: ["articleId", "title", "excerpt", "contentBlocks", "idempotencyKey"],
       properties: {
         articleId: { type: "string", format: "uuid" }, title: { type: "string", minLength: 1, maxLength: 180 },
-        excerpt: { type: "string", minLength: 1, maxLength: 500 }, contentBlocks: { type: "array", maxItems: 50 },
+        excerpt: { type: "string", minLength: 1, maxLength: 500 }, contentBlocks: { type: "array", maxItems: 50, items: ARTICLE_BLOCK_SCHEMA },
         seoTitle: { type: "string", maxLength: 180 }, seoDescription: { type: "string", maxLength: 320 },
         authorName: { type: "string", maxLength: 120 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
         correlationId: { type: "string", format: "uuid" },
       },
     },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: WRITE_ANNOTATIONS,
   },
   {
     name: "schedule_article_publication",
+    title: "Schedule article publication",
     description: "Schedule one exact article revision for future publication. The scheduler publishes only that revision after the policy-approved time.",
     inputSchema: {
       type: "object", additionalProperties: false,
@@ -312,10 +465,14 @@ const MCP_TOOLS: McpTool[] = [
         correlationId: { type: "string", format: "uuid" },
       },
     },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: WRITE_ANNOTATIONS,
   },
   {
     name: "publish_article",
+    title: "Publish an article revision",
     description: "Request publication of one exact article revision. The active policy normally requires approval; this tool never bypasses that decision.",
     inputSchema: {
       type: "object", additionalProperties: false,
@@ -325,6 +482,9 @@ const MCP_TOOLS: McpTool[] = [
         idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
       },
     },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
     annotations: WRITE_ANNOTATIONS,
   },
   {
@@ -354,6 +514,12 @@ const MCP_TOOLS: McpTool[] = [
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+function protocolJson(body: unknown, protocolVersion: string, status = 200): Response {
+  const headers = new Headers(JSON_HEADERS);
+  headers.set("MCP-Protocol-Version", protocolVersion);
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -586,9 +752,9 @@ async function callTool(
         status_value: requiredString(args, "status"),
       });
     case "list_articles":
-      return supabaseRpc(env, "get_published_articles", {});
+      return { articles: await supabaseRpc<unknown[]>(env, "get_published_articles", {}) };
     case "get_article":
-      return supabaseRpc(env, "get_published_article", { candidate_slug: requiredString(args, "slug") });
+      return { article: await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: requiredString(args, "slug") }) };
     case "create_article_draft":
       return runSemanticCommand(env, "create_article_draft", "article", null, "low", {}, {
         slug: requiredString(args, "slug"), title: requiredString(args, "title"), excerpt: requiredString(args, "excerpt"),
@@ -671,19 +837,24 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly
 
   if (rpc.method === "notifications/initialized")
     return new Response(null, { status: 202 });
-  if (rpc.method === "initialize")
-    return json({
+  if (rpc.method === "initialize") {
+    const requestedProtocolVersion = rpc.params?.protocolVersion;
+    const negotiatedProtocolVersion = requestedProtocolVersion && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(requestedProtocolVersion)
+      ? requestedProtocolVersion
+      : MCP_PROTOCOL_VERSION;
+    return protocolJson({
       jsonrpc: "2.0",
       id,
       result: {
-        protocolVersion: "2025-11-25",
+        protocolVersion: negotiatedProtocolVersion,
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: articleOnly ? "donate-by-mail-article-publisher" : "donate-by-mail-operations", version: "0.4.0" },
         instructions: articleOnly
           ? "This connector is limited to Donate by Mail editorial content. Use typed article blocks only. Draft creation, revision creation, and future scheduling are policy-controlled; immediate publication remains approval-gated unless the active policy explicitly allows it. Do not request donor, partner, financial, credential, or arbitrary database data."
           : "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
       },
-    });
+    }, negotiatedProtocolVersion);
+  }
   if (rpc.method === "tools/list")
     return json({ jsonrpc: "2.0", id, result: { tools: articleOnly ? MCP_TOOLS.filter((tool) => ARTICLE_MCP_TOOL_NAMES.has(tool.name)) : MCP_TOOLS } });
   if (rpc.method !== "tools/call" || !rpc.params?.name)

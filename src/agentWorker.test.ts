@@ -48,13 +48,26 @@ describe("Donate by Mail agent MCP wrapper", () => {
   it("accepts a remote MCP origin after bearer authentication", async () => {
     const response = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize" });
     expect(response.status).toBe(200);
-    const body = await response.json() as { result?: { serverInfo?: { name?: string } } };
+    expect(response.headers.get("MCP-Protocol-Version")).toBe("2025-06-18");
+    const body = await response.json() as { result?: { protocolVersion?: string; serverInfo?: { name?: string } } };
+    expect(body.result?.protocolVersion).toBe("2025-06-18");
     expect(body.result?.serverInfo?.name).toBe("donate-by-mail-operations");
+  });
+
+  it("negotiates the current MCP protocol when a client requests it", async () => {
+    const response = await articleMcp({
+      jsonrpc: "2.0", id: 11, method: "initialize",
+      params: { protocolVersion: "2025-11-25" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("MCP-Protocol-Version")).toBe("2025-11-25");
+    const body = await response.json() as { result?: { protocolVersion?: string } };
+    expect(body.result?.protocolVersion).toBe("2025-11-25");
   });
 
   it("exposes only bounded coworker tools", async () => {
     const response = await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list" });
-    const body = await response.json() as { result?: { tools?: Array<{ name: string }> } };
+    const body = await response.json() as { result?: { tools?: Array<{ name: string; outputSchema?: unknown; securitySchemes?: unknown }> } };
     const names = body.result?.tools?.map((tool) => tool.name) ?? [];
 
     expect(names).toContain("authorize_support_message");
@@ -85,5 +98,12 @@ describe("Donate by Mail agent MCP wrapper", () => {
     expect(names).not.toContain("find_donations");
     expect(names).not.toContain("authorize_support_message");
     expect(names).not.toContain("evaluate_semantic_command");
+
+    const createTool = body.result?.tools?.find((tool) => tool.name === "create_article_draft") as
+      | { inputSchema?: { properties?: { contentBlocks?: { items?: unknown } } }; outputSchema?: unknown; securitySchemes?: unknown }
+      | undefined;
+    expect(createTool?.inputSchema?.properties?.contentBlocks?.items).toBeTruthy();
+    expect(createTool?.outputSchema).toBeTruthy();
+    expect(createTool?.securitySchemes).toEqual([{ type: "oauth2", scopes: [] }]);
   });
 });
