@@ -1,4 +1,6 @@
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.account-support-link { display: grid; gap: .3rem; margin-top: 1rem; }
+.account-support-link small { color: #5b6672; }
 .account-card, .partner-organization, .campaign-editor, .campaign-story { border: 1px solid #c9c2b6; background: #fff; padding: clamp(1.1rem, 3vw, 2rem); }
 .inline-ops, .campaign-editor { display: grid; gap: .8rem; margin-top: 1.25rem; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
