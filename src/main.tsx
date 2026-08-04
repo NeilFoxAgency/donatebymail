@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import "./site-flow.css";
+import "./header-responsive.css";
 import "./pledge.css";
 import "./progress-fix.css";
 import "./homepage-refresh.css";

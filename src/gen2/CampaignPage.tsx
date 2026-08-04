@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, HeartHandshake, LockKeyhole, PackageCheck, Smartphone } from "lucide-react";
+import { publicApi } from "./AuthSession";
 
 type Campaign = {
   slug: string;
@@ -73,10 +74,9 @@ export function CampaignPage({ slug }: { slug: string }) {
   useEffect(() => {
     let active = true;
     setMessage("Loading campaign…");
-    fetch(`/api/campaigns/${encodeURIComponent(slug)}`, { headers: { accept: "application/json" } })
-      .then(async (response) => {
-        const body = await response.json() as { campaign?: Campaign; message?: string };
-        if (!response.ok || !body.campaign) throw new Error(body.message || "Campaign unavailable.");
+    publicApi<{ campaign?: Campaign }>(`/api/campaigns/${encodeURIComponent(slug)}`)
+      .then((body) => {
+        if (!body.campaign) throw new Error("Campaign unavailable.");
         if (!active) return;
         setCampaign(body.campaign);
         setCharity(body.campaign.charity || { pledgeId: body.campaign.charityPledgeId, name: body.campaign.charityName });

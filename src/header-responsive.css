@@ -1,0 +1,25 @@
+/* Keep the shared navigation readable on laptop widths. The seven-link
+   desktop row is too dense around 1024px, even though the page content still
+   has room for a two-column layout. */
+@media (min-width: 901px) and (max-width: 1120px) {
+  .page .desktop-nav {
+    display: none;
+  }
+
+  .page .menu-button {
+    display: grid;
+    place-items: center;
+  }
+
+  .page .mobile-nav {
+    display: grid;
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 1.25rem;
+  }
+
+  .page .mobile-nav a {
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--line);
+    font-weight: 750;
+  }
+}

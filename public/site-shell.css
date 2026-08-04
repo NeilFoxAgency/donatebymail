@@ -251,7 +251,9 @@
   object-fit: contain;
   object-position: center;
 }
-@media (max-width: 1000px) {
+/* The full seven-link navigation becomes crowded before tablet widths. Switch
+   to the accessible menu while there is still room for the page content. */
+@media (max-width: 1120px) {
   .desktop-nav {
     display: none;
   }

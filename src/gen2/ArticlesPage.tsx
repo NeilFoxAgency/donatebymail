@@ -110,7 +110,13 @@ export function ArticlesPage({ slug }: { slug?: string }) {
     const endpoint = slug ? `/api/articles/${encodeURIComponent(slug)}` : "/api/articles";
     fetch(endpoint, { headers: { accept: "application/json" }, cache: "no-store" })
       .then(async (response) => {
-        const body = await response.json() as { articles?: ArticleSummary[]; article?: Article; message?: string };
+        const raw = await response.text();
+        let body: { articles?: ArticleSummary[]; article?: Article; message?: string };
+        try {
+          body = JSON.parse(raw) as { articles?: ArticleSummary[]; article?: Article; message?: string };
+        } catch {
+          throw new Error("We could not load articles right now. Please try again.");
+        }
         if (!response.ok) throw new Error(body.message || "We could not load articles right now.");
         if (!active) return;
         if (slug) setArticle(body.article || null); else setArticles(body.articles || []);
