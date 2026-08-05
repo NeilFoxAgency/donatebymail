@@ -818,8 +818,7 @@ async function isTrustedArticleRequest(request: Request, env: AgentWorkerEnv): P
   if (url.hostname === "mcp-beta.donatebymail.org") {
     return Boolean(request.headers.get("cf-access-jwt-assertion"));
   }
-  if (url.hostname === "mcp-connector-beta.donatebymail.org"
-    || url.hostname === "donate-by-mail-beta.neilthenerd1.workers.dev") {
+  if (url.hostname === "mcp-connector-beta.donatebymail.org") {
     const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
     return safeSecretEqual(bearer, env.MCP_ARTICLE_BEARER_TOKEN);
   }
@@ -889,8 +888,7 @@ const originalWorker = worker as ExportedHandler<any>;
 export default {
   async fetch(request: Request, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org"
-      || url.hostname === "donate-by-mail-beta.neilthenerd1.workers.dev";
+    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org";
     const privateArticleHost = url.hostname === "mcp-beta.donatebymail.org" && url.pathname === "/mcp/articles";
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && portalArticleHost
       && (url.pathname === "/mcp" || url.pathname === "/mcp/articles"))
