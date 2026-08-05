@@ -104,6 +104,13 @@ in environment-specific secret stores. Deployment commands are explicit and
 guarded, CI actions are commit-pinned, lockfiles are committed, and secret and
 dependency scans run in CI.
 
+On August 5, 2026, GitHub reported five Dependabot alerts for Wrangler's
+transitive `undici` package (one high and four moderate). The beta branch pins
+the first patched `undici` release, 7.29.0, through the npm override mechanism;
+`npm audit --omit=optional --audit-level=moderate` now reports zero findings.
+The repository default branch will continue to show the historical alerts
+until this reviewed branch is merged; no production deployment is implied.
+
 ### Database operator and backup disclosure
 
 RLS does not protect against a database administrator, service-role compromise,
