@@ -1,6 +1,6 @@
 # Google Ad Grants website readiness
 
-Reviewed August 2, 2026 against current official Google for Nonprofits guidance.
+Reviewed August 5, 2026 against current official Google for Nonprofits guidance.
 
 ## Website requirements addressed
 
@@ -19,6 +19,27 @@ Reviewed August 2, 2026 against current official Google for Nonprofits guidance.
 | Contact and policies | Contact, Privacy, Terms, Accessibility, and Transparency pages are linked site-wide. |
 | Search discovery | `robots.txt`, `sitemap.xml`, canonical metadata, unique page descriptions, and NGO structured data are included. |
 | Ongoing original content | `/articles` provides a crawlable editorial section with typed, human-readable articles, per-article metadata, canonical URLs, and Article structured data. Publishing is versioned and scheduled through the beta agent CMS; drafts never appear publicly. |
+
+## Security and crawlability checks added in the beta build
+
+- Static-page builds now receive consistent Open Graph/Twitter metadata, an
+  absolute production canonical, and an explicit indexable robots directive.
+- The Worker owns `robots.txt` and `sitemap.xml` on the production hostname.
+  Published article slugs are appended when the article read service is
+  available; a valid static sitemap remains available during an article-service
+  outage. Beta returns `Disallow: /` and no sitemap.
+- `/ads.txt` is an intentional 404 rather than the homepage returned by the
+  SPA fallback. Donate by Mail does not run an ad inventory program.
+- `npm run seo:check` checks titles, descriptions, canonicals, social metadata,
+  image alt text, beta/AppDeploy leakage, sitemap contents, and the absence of
+  a static `ads.txt` asset.
+- The successful active donation submission emits the consent-gated
+  `donation_packet_created` event without donation IDs, email addresses, or
+  other donor identifiers. GA4 remains optional until configured and tested.
+
+These checks improve technical readiness; they do not establish domain
+verification, Search Console ownership, GA4 configuration, Google Ads import,
+or Ad Grants approval.
 
 ## Final preview validation
 
@@ -45,6 +66,9 @@ Reviewed August 2, 2026 against current official Google for Nonprofits guidance.
 6. Verify Google for Nonprofits eligibility through Goodstack.
 7. Build mission-specific campaigns with relevant geography, at least two unique sitelinks, tightly themed ad groups, specific keywords, and conversion-based bidding where required.
 8. Maintain current Ad Grants account-level policies after activation.
+
+The current production deployment predates these beta-only improvements. The
+branch must be deployed to beta and verified before any production rollout.
 
 ## Article publishing workflow
 

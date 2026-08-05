@@ -22,7 +22,7 @@ import { canonicalAuthorizationInput } from "./gen2/authorizationFingerprint";
 
 type BrevoRecipient = { email: string; name?: string };
 
-type WorkerEnv = Env & {
+type WorkerEnv = Omit<Env, "DEPLOYMENT_ENVIRONMENT"> & {
   PLEDGE_API_KEY?: string;
   DEPLOYMENT_ENVIRONMENT?: "production" | "beta";
   SUPABASE_URL?: string;
@@ -1482,8 +1482,93 @@ export async function processScheduledArticles(env: WorkerEnv): Promise<void> {
   await supabaseRpc(env, "publish_due_articles", {});
 }
 
+const PUBLIC_SITEMAP_PATHS = [
+  "/",
+  "/articles",
+  "/donate-phone.html",
+  "/how-it-works.html",
+  "/prepare-phone.html",
+  "/receipts.html",
+  "/data-security.html",
+  "/for-nonprofits.html",
+  "/about.html",
+  "/team.html",
+  "/get-involved.html",
+  "/phone-drives.html",
+  "/resources.html",
+  "/transparency.html",
+  "/contact.html",
+  "/privacy.html",
+  "/terms.html",
+  "/accessibility.html",
+] as const;
+
+export function escapeXml(value: string): string {
+  return value.replace(/[<>&'\"]/g, (character) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&apos;",
+    "\"": "&quot;",
+  })[character] ?? character);
+}
+
+export function buildRobotsTxt(environment: WorkerEnv["DEPLOYMENT_ENVIRONMENT"]): string {
+  if (environment === "beta") return "User-agent: *\nDisallow: /\n";
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "",
+    "Sitemap: https://donatebymail.org/sitemap.xml",
+    "",
+  ].join("\n");
+}
+
+export async function buildSitemapXml(env: WorkerEnv): Promise<string> {
+  const urls: Array<{ path: string; lastmod?: string }> = PUBLIC_SITEMAP_PATHS.map((path) => ({ path }));
+  if (env.DEPLOYMENT_ENVIRONMENT !== "beta" && env.SUPABASE_URL && env.SUPABASE_SECRET_KEY) {
+    try {
+      const articles = await supabaseRpc<Array<{ slug?: unknown; publishedAt?: unknown; published_at?: unknown }>>(env, "get_published_articles", {});
+      for (const article of articles) {
+        const slug = typeof article.slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(article.slug)
+          ? article.slug
+          : null;
+        if (!slug) continue;
+        const rawDate = article.publishedAt ?? article.published_at;
+        const publishedAt = typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(rawDate)
+          ? rawDate.slice(0, 10)
+          : undefined;
+        urls.push({ path: `/articles/${slug}`, lastmod: publishedAt });
+      }
+    } catch {
+      // The static sitemap remains valid if the optional article service is unavailable.
+    }
+  }
+  const body = urls.map(({ path, lastmod }) => [
+    "  <url>",
+    `    <loc>${escapeXml(`https://donatebymail.org${path}`)}</loc>`,
+    lastmod ? `    <lastmod>${escapeXml(lastmod)}</lastmod>` : "",
+    "  </url>",
+  ].filter(Boolean).join("\n")).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
+}
+
 async function routeRequest(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/ads.txt") {
+      return new Response("", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    }
+    if (request.method === "GET" && url.pathname === "/robots.txt") {
+      return new Response(buildRobotsTxt(env.DEPLOYMENT_ENVIRONMENT), {
+        headers: { "cache-control": "public, max-age=3600", "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    if (request.method === "GET" && url.pathname === "/sitemap.xml") {
+      if (env.DEPLOYMENT_ENVIRONMENT === "beta") return new Response("Not found", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+      return new Response(await buildSitemapXml(env), {
+        headers: { "cache-control": "public, max-age=3600", "content-type": "application/xml; charset=utf-8" },
+      });
+    }
     if (request.method === "POST" && url.pathname === "/api/donations") {
       return handleDonationSubmission(request, env);
     }
@@ -1526,11 +1611,13 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       catch { return json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null }, 500); }
     }
     if (request.method === "GET" && url.pathname === "/api/articles") {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return json({ ok: true, articles: [] });
       const articles = await supabaseRpc<unknown[]>(env, "get_published_articles", {});
       return json({ ok: true, articles });
     }
     const publicArticle = url.pathname.match(/^\/api\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
     if (request.method === "GET" && publicArticle) {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return json({ ok: false, message: "Article not found." }, 404);
       const article = await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: publicArticle[1] });
       if (!article) return json({ ok: false, message: "Article not found." }, 404);
       return json({ ok: true, article });
@@ -1605,13 +1692,16 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     });
 }
 
-function hardened(response: Response, request: Request, env: WorkerEnv): Response {
+export function hardened(response: Response, request: Request, env: WorkerEnv): Response {
   const headers = new Headers(response.headers);
-  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to; img-src 'self' data: https://images.pexels.com https://5e27aa4c670fcbb06b.v2.appdeploy.ai https://www.pledge.to https://res.cloudinary.com https://pledgeling-res.cloudinary.com; style-src 'self' 'unsafe-inline'; font-src 'self'; upgrade-insecure-requests");
+  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to https://www.googletagmanager.com; script-src-attr 'none'; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to https://www.google-analytics.com https://region1.google-analytics.com; img-src 'self' data: https://images.pexels.com https://www.pledge.to https://res.cloudinary.com https://pledgeling-res.cloudinary.com https://www.google-analytics.com; style-src 'self'; style-src-attr 'none'; font-src 'self'; upgrade-insecure-requests");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
   headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   headers.set("x-content-type-options", "nosniff");
   headers.set("x-frame-options", "DENY");
+  headers.set("x-permitted-cross-domain-policies", "none");
+  headers.set("cross-origin-resource-policy", "same-origin");
+  if (env.DEPLOYMENT_ENVIRONMENT === "production") headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
   if (env.DEPLOYMENT_ENVIRONMENT === "beta") headers.set("x-robots-tag", "noindex, nofollow, noarchive");
   const path = new URL(request.url).pathname;
   if (path.startsWith("/api/") || ["/staff", "/account", "/partner"].includes(path.replace(/\/$/, "")))

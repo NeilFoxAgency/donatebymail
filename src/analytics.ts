@@ -49,8 +49,8 @@ export function trackPage(path: string, title: string) {
 }
 
 export function trackEvent(name: string, parameters: Record<string, string | number | boolean> = {}) {
+  if (!measurementId || getAnalyticsConsent() !== 'granted') return;
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({ event: name, ...parameters });
-  if (!measurementId || getAnalyticsConsent() !== 'granted') return;
   window.gtag?.('event', name, parameters);
 }

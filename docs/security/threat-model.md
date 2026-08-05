@@ -175,9 +175,25 @@ partner HTML, scripts, CSS, embeds, or arbitrary remote URLs.
 ### Browser hardening and administrative email
 
 The Worker deploys a CSP with exact production and staging Pledge origins,
-denies framing and object embedding, restricts forms and connections, and adds
-`Referrer-Policy`, `Permissions-Policy`, `X-Content-Type-Options`, and
-`X-Frame-Options`. API and authenticated surfaces use `Cache-Control: no-store`.
+Google Analytics/Tag Manager only when configured, denies framing and object
+embedding, blocks inline script/style attributes, restricts forms and
+connections, and adds `Referrer-Policy`, `Permissions-Policy`,
+`X-Content-Type-Options`, `X-Frame-Options`,
+`X-Permitted-Cross-Domain-Policies`, and `Cross-Origin-Resource-Policy`.
+Production also sends one-year HSTS with subdomains; preload is intentionally
+not claimed until every production subdomain has been verified. API and
+authenticated surfaces use `Cache-Control: no-store`.
+
+The static SPA fallback cannot be used for operational metadata: the Worker
+returns a deliberate 404 for `/ads.txt`, serves a production sitemap with
+published article URLs when available, and returns a beta `Disallow: /`
+robots policy. Cloudflare-managed content-signal lines may still be prepended
+to `robots.txt`; the beta hostname remains protected by Access and the Worker
+also sends `X-Robots-Tag: noindex` for beta responses.
+
+Public support-page images use `Referrer-Policy` at the element level and the
+legacy AppDeploy-hosted mascot URL has been replaced with the first-party asset
+so the preview host is not leaked through production HTML.
 Routine beta administrator notices contain only the public donation ID,
 charity, device count, status, and authenticated staff link. Donor email and
 street address stay in the private workspace rather than routine email.
@@ -244,3 +260,12 @@ records who asserted physical facts, and preserves operational evidence.
 
 Repository: https://github.com/NeilFoxAgency/donatebymail.git
 Version: working-tree-4707d2c4ea94795795c2e9ce581fa83289e5d37cf5fa03b973d62ca6b31a6611
+
+## Review references
+
+- [OWASP Top 10](https://owasp.org/Top10/2021/)
+- [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+- [MDN Content-Security-Policy reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy)
+- [MDN practical CSP implementation guide](https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/CSP)
+- [Cloudflare Workers security model](https://developers.cloudflare.com/workers/reference/security-model/)

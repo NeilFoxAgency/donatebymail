@@ -26,6 +26,7 @@ jobs:
       - run: npm run security:secrets
       - run: npm run typecheck
       - run: npm run build
+      - run: npm run seo:check
       - run: npx wrangler deploy --env beta --dry-run
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium

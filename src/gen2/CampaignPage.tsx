@@ -139,7 +139,7 @@ export function CampaignPage({ slug }: { slug: string }) {
     <section className="campaign-section campaign-choice-section">
       <div className="campaign-wrap campaign-choice-grid">
         <div><p className="campaign-eyebrow">Support this campaign</p><h2>Support {charity?.name || campaign.charityName} with your old phone.</h2><p className="campaign-choice-copy">The campaign nonprofit is already selected. When you start your donation, that beneficiary stays attached to the donation record and appears again in your confirmation.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>Continue to mailing details <ArrowRight aria-hidden="true" /></a></div>
-        <aside className="campaign-choice-card"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><p className="campaign-eyebrow">Verified nonprofit</p><h3>{charity?.name || campaign.charityName}</h3><p>Nonprofit details and logo are refreshed from the verified Pledge record before this public page is shown.</p>{website && <a href={website} target="_blank" rel="noreferrer">Learn more about this nonprofit <ExternalLink aria-hidden="true" /></a>}</aside>
+        <aside className="campaign-choice-card"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><p className="campaign-eyebrow">Verified nonprofit</p><h3>{charity?.name || campaign.charityName}</h3><p>Nonprofit details and logo are refreshed from the verified Pledge record before this public page is shown.</p>{website && <a href={website} target="_blank" rel="noopener noreferrer">Learn more about this nonprofit <ExternalLink aria-hidden="true" /></a>}</aside>
       </div>
     </section>
 
@@ -164,7 +164,7 @@ export function CampaignPage({ slug }: { slug: string }) {
     <section className="campaign-section campaign-charity-section">
       <div className="campaign-wrap campaign-charity-panel">
         <div className="campaign-charity-heading"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><div><p className="campaign-eyebrow">Your selected nonprofit</p><h2>{charity?.name || campaign.charityName}</h2>{location && <p>{location}</p>}</div></div>
-        <div className="campaign-charity-details"><p>Donate through this campaign and your selection stays attached to the donation record.</p>{charity?.ein && <p><strong>EIN:</strong> {charity.ein}</p>}{website && <a href={website} target="_blank" rel="noreferrer">Visit the nonprofit website <ExternalLink aria-hidden="true" /></a>}<small>Nonprofit search and selection are provided through Pledge.</small></div>
+        <div className="campaign-charity-details"><p>Donate through this campaign and your selection stays attached to the donation record.</p>{charity?.ein && <p><strong>EIN:</strong> {charity.ein}</p>}{website && <a href={website} target="_blank" rel="noopener noreferrer">Visit the nonprofit website <ExternalLink aria-hidden="true" /></a>}<small>Nonprofit search and selection are provided through Pledge.</small></div>
       </div>
     </section>
 

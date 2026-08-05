@@ -16,6 +16,7 @@ type ArticleSummary = {
   publishedAt: string;
   seoTitle?: string | null;
   seoDescription?: string | null;
+  updatedAt?: string | null;
 };
 
 type Article = ArticleSummary & {
@@ -51,7 +52,8 @@ function ArticleJsonLd({ article }: { article: Article }) {
       description: article.seoDescription || article.excerpt,
       author: { "@type": "Organization", name: article.authorName },
       datePublished: article.publishedAt,
-      dateModified: article.publishedAt,
+      dateModified: article.updatedAt || article.publishedAt,
+      image: `${SITE_ORIGIN}/resources/phone-donation-hero.png`,
       mainEntityOfPage: `${SITE_ORIGIN}/articles/${article.slug}`,
       publisher: { "@type": "Organization", name: "Donate by Mail", url: SITE_ORIGIN },
     });
@@ -75,7 +77,7 @@ function ArticleBlocks({ blocks }: { blocks: ArticleBlock[] }) {
         if (block.type !== "link") return null;
         return (
           <p className="article-inline-link" key={index}>
-            <a href={block.href} rel={block.href.startsWith("https://") ? "noreferrer" : undefined} target={block.href.startsWith("https://") ? "_blank" : undefined}>
+            <a href={block.href} rel={block.href.startsWith("https://") ? "noopener noreferrer" : undefined} target={block.href.startsWith("https://") ? "_blank" : undefined}>
               {block.label} <ArrowRight aria-hidden="true" />
             </a>
           </p>
@@ -133,7 +135,12 @@ export function ArticlesPage({ slug }: { slug?: string }) {
     document.title = title;
     setMeta("description", description);
     setMeta("og:title", title, true); setMeta("og:description", description, true);
+    setMeta("og:type", "article", true);
+    setMeta("og:url", `${SITE_ORIGIN}/articles/${article.slug}`, true);
+    setMeta("og:image", `${SITE_ORIGIN}/resources/phone-donation-hero.png`, true);
+    setMeta("og:image:alt", "Donate by Mail phone donation", true);
     setMeta("twitter:title", title); setMeta("twitter:description", description);
+    setMeta("twitter:card", "summary_large_image"); setMeta("twitter:image", `${SITE_ORIGIN}/resources/phone-donation-hero.png`);
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]') || document.head.appendChild(Object.assign(document.createElement("link"), { rel: "canonical" }));
     const previous = canonical.href; canonical.href = `${SITE_ORIGIN}/articles/${article.slug}`;
     return () => { document.title = "Donate an Old Phone to a Charity You Choose | Donate by Mail"; setMeta("description", "Donate an old phone by mail and choose a nonprofit you care about. Donate by Mail is a U.S. 501(c)(3) public charity with a simple guided process."); canonical.href = previous || `${SITE_ORIGIN}/`; };

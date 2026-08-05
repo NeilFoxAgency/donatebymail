@@ -49,6 +49,7 @@ import { PartnerPage } from "./gen2/PartnerPage";
 import { CampaignPage } from "./gen2/CampaignPage";
 import { AccountGatewayPage, AccountSettingsPage } from "./gen2/AccountGatewayPage";
 import { ArticlesPage } from "./gen2/ArticlesPage";
+import { trackEvent } from "./analytics";
 type SubmissionResponse = {
   ok: boolean;
   message?: string;
@@ -379,7 +380,7 @@ function SocialLinks() {
       <a
         href="https://x.com/donatebymail"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on X"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -389,7 +390,7 @@ function SocialLinks() {
       <a
         href="https://www.facebook.com/people/Donate-by-Mail/61551982935106/"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on Facebook"
       >
         <svg viewBox="0 0 320 512" aria-hidden="true">
@@ -399,7 +400,7 @@ function SocialLinks() {
       <a
         href="https://bsky.app/profile/donatebymail.bsky.social"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on Bluesky"
       >
         <img
@@ -1130,6 +1131,11 @@ function DonationPage() {
         setTrackingLink(response.trackingUrl || "");
         setNotificationPending(Boolean(response.notificationPending));
         setStep(4);
+        trackEvent("donation_packet_created", {
+          device_count: next.devices.length,
+          shipping_method: next.shippingMethod,
+          selected_charity: Boolean(next.charity.pledgeId),
+        });
         submissionAttempt.current = null;
         localStorage.removeItem("donate-by-mail-draft");
       } catch (error) {
