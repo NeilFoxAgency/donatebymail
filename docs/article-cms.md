@@ -18,9 +18,12 @@ a server-computed SHA-256 content hash.
 The beta article connector is available through the Cloudflare MCP Portal at
 `https://mcp-portal-beta.donatebymail.org/mcp`. The portal is the preferred
 ChatGPT endpoint: it provides the managed OAuth front door and proxies only
-the beta article server. The upstream server is available directly at
-`https://mcp-beta.donatebymail.org/mcp/articles` for private diagnostics, and
-is independently protected by Cloudflare Access. The article server exposes only
+the beta article server. The portal upstream is the dedicated beta connector
+hostname `https://mcp-connector-beta.donatebymail.org/mcp`, protected by a
+server-only bearer secret. The original
+`https://mcp-beta.donatebymail.org/mcp/articles` hostname remains available for
+private diagnostics and is independently protected by Cloudflare Access. The
+article server exposes only
 `list_articles`, `get_article`, `create_article_draft`, `update_article_content`,
 `schedule_article_publication`, and `publish_article`. It does not expose
 donor, partner, support-email, financial, credential, or arbitrary SQL tools.
@@ -29,14 +32,12 @@ key, correlation ID, exact target/revision IDs, and an audited execution result.
 
 To connect ChatGPT, an administrator enables developer mode, creates a custom
 MCP app, enters the portal endpoint above, selects OAuth, scans the tools, and
-tests the draft app before publishing it to the workspace. Both the portal and
-the upstream server are restricted to `tre@donatebymail.org` by Cloudflare
-Access. The portal's upstream capability sync must be authenticated once in
-Cloudflare Zero Trust (**AI controls → MCP servers → Donate by Mail beta article
-publisher → Authenticate/Reauthenticate**); after that, the portal will expose
-the six article tools to the ChatGPT app. ChatGPT may still ask for approval for
-write actions according to workspace app permissions and the active article
-policy.
+tests the draft app before publishing it to the workspace. The portal is
+restricted to `tre@donatebymail.org` by Cloudflare Access. Cloudflare stores the
+upstream bearer credential in its managed MCP configuration; it is never placed
+in the browser app, repository, or ChatGPT instructions. ChatGPT may still ask
+for approval for write actions according to workspace app permissions and the
+active article policy.
 
 - Draft creation, revision creation, and future scheduling are automatically
   allowed by the beta policy when their risk classification matches.

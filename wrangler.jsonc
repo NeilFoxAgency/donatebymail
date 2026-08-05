@@ -52,6 +52,10 @@
           "pattern": "mcp-beta.donatebymail.org",
           "custom_domain": true,
         },
+        {
+          "pattern": "mcp-connector-beta.donatebymail.org",
+          "custom_domain": true,
+        },
       ],
       "secrets": {
         "required": [
@@ -63,6 +67,7 @@
           "DONATION_TRACKING_SECRET",
           "BFF_SESSION_SECRET",
           "AGENT_API_KEY",
+          "MCP_ARTICLE_BEARER_TOKEN",
         ],
       },
       "triggers": {

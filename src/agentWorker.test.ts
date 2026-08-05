@@ -4,6 +4,7 @@ import agentWorker from "./agentWorker";
 const env = {
   DEPLOYMENT_ENVIRONMENT: "beta",
   AGENT_API_KEY: "test-agent-key",
+  MCP_ARTICLE_BEARER_TOKEN: "test-article-bearer",
 } as unknown as Env;
 
 const context = {
@@ -32,6 +33,18 @@ async function articleMcp(body: Record<string, unknown>, headers: Record<string,
     new Request("https://mcp-beta.donatebymail.org/mcp/articles", {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+    context,
+  );
+}
+
+async function articlePortalUpstream(body: Record<string, unknown>, authorization = "Bearer test-article-bearer") {
+  return agentWorker.fetch(
+    new Request("https://mcp-connector-beta.donatebymail.org/mcp", {
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
     env,
@@ -83,6 +96,15 @@ describe("Donate by Mail agent MCP wrapper", () => {
   it("requires a Cloudflare Access assertion on the article connector", async () => {
     const response = await articleMcp({ jsonrpc: "2.0", id: 3, method: "initialize" }, {});
     expect(response.status).toBe(401);
+  });
+
+  it("accepts only the dedicated bearer on the portal upstream hostname", async () => {
+    const denied = await articlePortalUpstream({ jsonrpc: "2.0", id: 31, method: "initialize" }, "Bearer wrong-article-token");
+    expect(denied.status).toBe(401);
+    const allowed = await articlePortalUpstream({ jsonrpc: "2.0", id: 32, method: "initialize" });
+    expect(allowed.status).toBe(200);
+    const body = await allowed.json() as { result?: { serverInfo?: { name?: string } } };
+    expect(body.result?.serverInfo?.name).toBe("donate-by-mail-article-publisher");
   });
 
   it("exposes only editorial tools on the article connector", async () => {

@@ -7,6 +7,8 @@ type AgentWorkerEnv = Env & {
   SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
   AGENT_API_KEY?: string;
+  /** Dedicated beta-only credential used by the Cloudflare MCP Portal upstream. */
+  MCP_ARTICLE_BEARER_TOKEN?: string;
 };
 
 type JsonRpcRequest = {
@@ -811,16 +813,23 @@ async function callTool(
   }
 }
 
-function isTrustedArticleAccessRequest(request: Request): boolean {
+async function isTrustedArticleRequest(request: Request, env: AgentWorkerEnv): Promise<boolean> {
   const url = new URL(request.url);
-  return url.hostname === "mcp-beta.donatebymail.org"
-    && Boolean(request.headers.get("cf-access-jwt-assertion"));
+  if (url.hostname === "mcp-beta.donatebymail.org") {
+    return Boolean(request.headers.get("cf-access-jwt-assertion"));
+  }
+  if (url.hostname === "mcp-connector-beta.donatebymail.org"
+    || url.hostname === "donate-by-mail-beta.neilthenerd1.workers.dev") {
+    const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+    return safeSecretEqual(bearer, env.MCP_ARTICLE_BEARER_TOKEN);
+  }
+  return false;
 }
 
 async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly = false): Promise<Response> {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
   const authorized = articleOnly
-    ? isTrustedArticleAccessRequest(request)
+    ? await isTrustedArticleRequest(request, env)
     : await safeSecretEqual(bearer, env.AGENT_API_KEY);
   if (!authorized)
     return json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }, 401);
@@ -880,7 +889,13 @@ const originalWorker = worker as ExportedHandler<any>;
 export default {
   async fetch(request: Request, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp/articles")
+    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org"
+      || url.hostname === "donate-by-mail-beta.neilthenerd1.workers.dev";
+    const privateArticleHost = url.hostname === "mcp-beta.donatebymail.org" && url.pathname === "/mcp/articles";
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && portalArticleHost
+      && (url.pathname === "/mcp" || url.pathname === "/mcp/articles"))
+      return handleAgentMcp(request, env, true);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && privateArticleHost)
       return handleAgentMcp(request, env, true);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp")
       return handleAgentMcp(request, env);
