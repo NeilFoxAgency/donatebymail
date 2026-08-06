@@ -56,6 +56,10 @@
           "pattern": "mcp-connector-beta.donatebymail.org",
           "custom_domain": true,
         },
+        {
+          "pattern": "mcp-oauth-beta.donatebymail.org",
+          "custom_domain": true,
+        },
       ],
       "secrets": {
         "required": [

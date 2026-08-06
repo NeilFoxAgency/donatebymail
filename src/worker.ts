@@ -25,6 +25,8 @@ type BrevoRecipient = { email: string; name?: string };
 type WorkerEnv = Omit<Env, "DEPLOYMENT_ENVIRONMENT"> & {
   PLEDGE_API_KEY?: string;
   DEPLOYMENT_ENVIRONMENT?: "production" | "beta";
+  TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_HOSTNAMES?: string;
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
   SUPABASE_SECRET_KEY?: string;
@@ -581,6 +583,56 @@ async function handleOrganizationLookup(
   }
 }
 
+const DEFAULT_TURNSTILE_HOSTNAMES = new Set([
+  "donatebymail.org",
+  "www.donatebymail.org",
+]);
+
+/** Validate the one-time Turnstile token at the server boundary. */
+export async function verifyTurnstile(
+  request: Request,
+  env: WorkerEnv,
+  token: string | undefined,
+): Promise<boolean> {
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta") return true;
+  if (!env.TURNSTILE_SECRET_KEY || !token || token.length > 2048) return false;
+  const configuredHostnames = new Set(
+    (env.TURNSTILE_HOSTNAMES || "")
+      .split(",")
+      .map((hostname) => hostname.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const expectedHostnames = configuredHostnames.size
+    ? configuredHostnames
+    : DEFAULT_TURNSTILE_HOSTNAMES;
+  try {
+    const response = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          secret: env.TURNSTILE_SECRET_KEY,
+          response: token,
+          remoteip: request.headers.get("cf-connecting-ip") || "",
+        }),
+      },
+    );
+    if (!response.ok) return false;
+    const result = await response.json() as {
+      success?: boolean;
+      action?: string;
+      hostname?: string;
+    };
+    return result.success === true
+      && result.action === "donation_submit"
+      && typeof result.hostname === "string"
+      && expectedHostnames.has(result.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 async function handleDonationSubmission(
   request: Request,
   env: WorkerEnv,
@@ -603,6 +655,14 @@ async function handleDonationSubmission(
       400,
     );
   }
+  const rawRecord = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+  const turnstileToken = stringValue(rawRecord?.turnstileToken);
+  if (rawRecord) {
+    const { turnstileToken: _ignoredTurnstileToken, ...submissionPayload } = rawRecord;
+    payload = submissionPayload;
+  }
   if (!validateDonationSubmission(payload)) {
     return json(
       {
@@ -612,6 +672,8 @@ async function handleDonationSubmission(
       400,
     );
   }
+  if (env.DEPLOYMENT_ENVIRONMENT !== "beta" && !(await verifyTurnstile(request, env, turnstileToken)))
+    return json({ ok: false, message: "Security verification could not be completed. Please try again." }, 403);
   const submittedRequestHash = await sha256Hex(stableJson(payload));
   if (env.DEPLOYMENT_ENVIRONMENT === "beta" && !(await anonymousRateAllowed(request, env, "donation_submit", 10, 3600)))
     return json({ ok: false, message: "Too many test submissions. Please try again later." }, 429);

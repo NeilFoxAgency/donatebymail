@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -59,6 +59,27 @@ type SubmissionResponse = {
   trackingUrl?: string;
   notificationPending?: boolean;
 };
+
+type TurnstileApi = {
+  render: (container: HTMLElement, options: {
+    sitekey: string;
+    action: string;
+    callback: (token: string) => void;
+    "expired-callback": () => void;
+    "error-callback": () => void;
+  }) => string;
+  reset: (widgetId?: string) => void;
+  remove: (widgetId: string) => void;
+};
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileApi;
+  }
+}
+
+const TURNSTILE_SITE_KEY =
+  (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() || "";
 const brands: Brand[] = ["Apple", "Samsung", "Google", "Motorola", "Other"],
   ages: Age[] = ["0-1 year", "2-3 years", "4-5 years", "6+ years"],
   conditions: Condition[] = ["Excellent", "Good", "Fair", "Damaged"],
@@ -250,6 +271,74 @@ function loadPledgeScript(url: string) {
     document.head.appendChild(script);
   });
 }
+
+function loadTurnstileScript() {
+  return new Promise<void>((resolve, reject) => {
+    if (window.turnstile) return resolve();
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-dbm-turnstile-script="true"]',
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("load failed")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.dataset.dbmTurnstileScript = "true";
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(new Error("load failed")), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function TurnstileWidget({
+  onToken,
+  onResetReady,
+}: {
+  onToken: (token: string) => void;
+  onResetReady: (reset: () => void) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tokenRef = useRef(onToken);
+  tokenRef.current = onToken;
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || !containerRef.current) return;
+    let widgetId: string | null = null;
+    let disposed = false;
+    const reset = () => {
+      tokenRef.current("");
+      if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
+    };
+    onResetReady(reset);
+    void loadTurnstileScript()
+      .then(() => {
+        if (disposed || !containerRef.current || !window.turnstile) return;
+        widgetId = window.turnstile.render(containerRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          action: "donation_submit",
+          callback: (token) => tokenRef.current(token),
+          "expired-callback": () => tokenRef.current(""),
+          "error-callback": () => tokenRef.current(""),
+        });
+      })
+      .catch(() => tokenRef.current(""));
+    return () => {
+      disposed = true;
+      if (widgetId && window.turnstile) window.turnstile.remove(widgetId);
+    };
+  }, [onResetReady]);
+  if (!TURNSTILE_SITE_KEY) return null;
+  return (
+    <div className="turnstile-field" aria-label="Security verification">
+      <p>Security verification</p>
+      <div ref={containerRef} data-action="turnstile-spin-v1" />
+    </div>
+  );
+}
+
 async function fetchCharityDetails(charity: SelectedCharity) {
   try {
     const response = await fetch(
@@ -267,6 +356,7 @@ async function fetchCharityDetails(charity: SelectedCharity) {
 }
 async function sendDonation(
   record: DonationSubmission,
+  turnstileToken = "",
 ): Promise<SubmissionResponse> {
   const response = await fetch("/api/donations", {
       method: "POST",
@@ -274,7 +364,9 @@ async function sendDonation(
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify(record),
+      body: JSON.stringify(
+        turnstileToken ? { ...record, turnstileToken } : record,
+      ),
     }),
     body = (await response.json().catch(() => ({}))) as SubmissionResponse;
   if (!response.ok)
@@ -974,8 +1066,13 @@ function DonationPage() {
     [draftSaved, setDraftSaved] = useState(false),
     [submitting, setSubmitting] = useState(false),
     [submitError, setSubmitError] = useState(""),
+    [turnstileToken, setTurnstileToken] = useState(""),
     charityRef = useRef<HTMLDivElement>(null),
-    submissionAttempt = useRef<SubmissionAttempt | null>(null);
+    submissionAttempt = useRef<SubmissionAttempt | null>(null),
+    turnstileResetRef = useRef<(() => void) | null>(null),
+    registerTurnstileReset = useCallback((reset: () => void) => {
+      turnstileResetRef.current = reset;
+    }, []);
   useEffect(() => {
     const cleanup = () => document.body.removeAttribute("data-print-target");
     window.addEventListener("afterprint", cleanup);
@@ -1096,6 +1193,10 @@ function DonationPage() {
         requestAnimationFrame(() => charityRef.current?.focus());
         return;
       }
+      if (TURNSTILE_SITE_KEY && !turnstileToken) {
+        setSubmitError("Please complete the security verification and try again.");
+        return;
+      }
       const intent = { donor, shippingMethod, devices, charity: selectedCharity,
         campaignSlug: campaignSlug || undefined };
       const fingerprint = submissionIntentFingerprint(intent);
@@ -1119,7 +1220,7 @@ function DonationPage() {
       };
       setSubmitting(true);
       try {
-        const response = await sendDonation(next),
+        const response = await sendDonation(next, turnstileToken),
           final = {
             ...next,
             id: response.donationId || next.id,
@@ -1145,6 +1246,8 @@ function DonationPage() {
             : "We could not send the donation packet. Please try again.",
         );
       } finally {
+        turnstileResetRef.current?.();
+        setTurnstileToken("");
         setSubmitting(false);
       }
     },
@@ -1518,6 +1621,12 @@ function DonationPage() {
                     Restore saved draft
                   </button>
                 </div>
+                {TURNSTILE_SITE_KEY && (
+                  <TurnstileWidget
+                    onToken={setTurnstileToken}
+                    onResetReady={registerTurnstileReset}
+                  />
+                )}
                 {submitError && (
                   <p className="submit-error" role="alert">
                     {submitError}

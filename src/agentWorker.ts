@@ -524,6 +524,13 @@ function protocolJson(body: unknown, protocolVersion: string, status = 200): Res
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+function requestProtocolVersion(request: Request): string {
+  const requested = request.headers.get("MCP-Protocol-Version");
+  return requested && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(requested)
+    ? requested
+    : MCP_PROTOCOL_VERSION;
+}
+
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -636,15 +643,15 @@ async function supabaseRpc<T>(
   return (await response.json()) as T;
 }
 
-function toolResult(id: JsonRpcRequest["id"], value: unknown): Response {
-  return json({
+function toolResult(id: JsonRpcRequest["id"], value: unknown, protocolVersion: string): Response {
+  return protocolJson({
     jsonrpc: "2.0",
     id: id ?? null,
     result: {
       content: [{ type: "text", text: JSON.stringify(value) }],
       structuredContent: value,
     },
-  });
+  }, protocolVersion);
 }
 
 async function callTool(
@@ -822,6 +829,15 @@ async function isTrustedArticleRequest(request: Request, env: AgentWorkerEnv): P
     const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
     return safeSecretEqual(bearer, env.MCP_ARTICLE_BEARER_TOKEN);
   }
+  if (url.hostname === "mcp-oauth-beta.donatebymail.org") {
+    // Cloudflare Access validates the managed-OAuth token before forwarding
+    // the request. Depending on the MCP client/Access transport, the edge may
+    // expose either the signed assertion or the validated bearer header to the
+    // origin. Keep this hostname separate from the bearer-only portal upstream;
+    // requests cannot reach this path without the Access application policy.
+    return Boolean(request.headers.get("cf-access-jwt-assertion")
+      || request.headers.get("authorization")?.match(/^Bearer\s+\S+/i));
+  }
   return false;
 }
 
@@ -842,9 +858,10 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly
     return json({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }, 400);
   }
   const id = rpc.id ?? null;
+  const requestVersion = requestProtocolVersion(request);
 
   if (rpc.method === "notifications/initialized")
-    return new Response(null, { status: 202 });
+    return new Response(null, { status: 202, headers: { ...JSON_HEADERS, "MCP-Protocol-Version": requestVersion } });
   if (rpc.method === "initialize") {
     const requestedProtocolVersion = rpc.params?.protocolVersion;
     const negotiatedProtocolVersion = requestedProtocolVersion && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(requestedProtocolVersion)
@@ -864,7 +881,7 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly
     }, negotiatedProtocolVersion);
   }
   if (rpc.method === "tools/list")
-    return json({ jsonrpc: "2.0", id, result: { tools: articleOnly ? MCP_TOOLS.filter((tool) => ARTICLE_MCP_TOOL_NAMES.has(tool.name)) : MCP_TOOLS } });
+    return protocolJson({ jsonrpc: "2.0", id, result: { tools: articleOnly ? MCP_TOOLS.filter((tool) => ARTICLE_MCP_TOOL_NAMES.has(tool.name)) : MCP_TOOLS } }, requestVersion);
   if (rpc.method !== "tools/call" || !rpc.params?.name)
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
 
@@ -872,14 +889,14 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly
     if (articleOnly && !ARTICLE_MCP_TOOL_NAMES.has(rpc.params.name))
       throw new Error("article_connector_tool_not_allowed");
     const value = await callTool(rpc.params.name, rpc.params.arguments ?? {}, env);
-    return toolResult(id, value);
+    return toolResult(id, value, requestVersion);
   } catch (error) {
     console.error(JSON.stringify({
       event: "agent_mcp_tool_failed",
       tool: rpc.params.name,
       reason: error instanceof Error ? error.message : "unknown",
     }));
-    return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "The bounded operation was rejected." } });
+    return protocolJson({ jsonrpc: "2.0", id, error: { code: -32602, message: "The bounded operation was rejected." } }, requestVersion);
   }
 }
 
@@ -888,7 +905,8 @@ const originalWorker = worker as ExportedHandler<any>;
 export default {
   async fetch(request: Request, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org";
+    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org"
+      || url.hostname === "mcp-oauth-beta.donatebymail.org";
     const privateArticleHost = url.hostname === "mcp-beta.donatebymail.org" && url.pathname === "/mcp/articles";
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && portalArticleHost
       && (url.pathname === "/mcp" || url.pathname === "/mcp/articles"))

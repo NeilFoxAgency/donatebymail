@@ -52,6 +52,20 @@ async function articlePortalUpstream(body: Record<string, unknown>, authorizatio
   );
 }
 
+async function articleDirectOAuth(body: Record<string, unknown>, headers: Record<string, string> = {
+  "cf-access-jwt-assertion": "test-access-jwt",
+}) {
+  return agentWorker.fetch(
+    new Request("https://mcp-oauth-beta.donatebymail.org/mcp", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+    context,
+  );
+}
+
 describe("Donate by Mail agent MCP wrapper", () => {
   it("requires the agent bearer secret", async () => {
     const response = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize" }, "Bearer wrong-key");
@@ -107,9 +121,24 @@ describe("Donate by Mail agent MCP wrapper", () => {
     expect(body.result?.serverInfo?.name).toBe("donate-by-mail-article-publisher");
   });
 
+  it("accepts the validated bearer forwarded by the managed OAuth hostname", async () => {
+    const denied = await articleDirectOAuth({ jsonrpc: "2.0", id: 33, method: "initialize" }, {});
+    expect(denied.status).toBe(401);
+    const allowed = await articleDirectOAuth({ jsonrpc: "2.0", id: 34, method: "initialize" }, {
+      authorization: "Bearer access-validated-by-cloudflare",
+    });
+    expect(allowed.status).toBe(200);
+    const body = await allowed.json() as { result?: { serverInfo?: { name?: string } } };
+    expect(body.result?.serverInfo?.name).toBe("donate-by-mail-article-publisher");
+  });
+
   it("exposes only editorial tools on the article connector", async () => {
-    const response = await articleMcp({ jsonrpc: "2.0", id: 4, method: "tools/list" });
+    const response = await articleMcp({ jsonrpc: "2.0", id: 4, method: "tools/list" }, {
+      "cf-access-jwt-assertion": "test-access-jwt",
+      "MCP-Protocol-Version": "2025-11-25",
+    });
     expect(response.status).toBe(200);
+    expect(response.headers.get("MCP-Protocol-Version")).toBe("2025-11-25");
     const body = await response.json() as { result?: { tools?: Array<{ name: string }> } };
     const names = body.result?.tools?.map((tool) => tool.name) ?? [];
 
