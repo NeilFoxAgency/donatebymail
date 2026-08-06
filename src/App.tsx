@@ -396,22 +396,24 @@ function Header() {
   const [open, setOpen] = useState(false),
     [signedIn, setSignedIn] = useState(false),
     primaryLink = ["Donate a phone", "/donate-phone.html"] as const,
-    exploreLinks = [
+    visibleLinks = [
       ["How it works", "/how-it-works.html"],
-      ["Prepare your phone", "/prepare-phone.html"],
       ["For nonprofits", "/for-nonprofits.html"],
       ["Help and FAQs", "/resources.html"],
+    ] as const,
+    moreLinks = [
+      ["Prepare your phone", "/prepare-phone.html"],
       ["Blog", "/articles"],
       ["About", "/about.html"],
     ] as const,
     currentPath = window.location.pathname.replace(/\/$/, "") || "/",
     active = (h: string) => h === "/articles" ? currentPath === "/articles" || currentPath === "/articles.html" || currentPath.startsWith("/articles/") : currentPath === h.replace(/\.html$/, "") || currentPath === h;
-  const exploreActive = exploreLinks.some(([, href]) => active(href));
-  const ExploreMenu = () => (
-    <details className={`nav-menu${exploreActive ? " nav-active" : ""}`}>
-      <summary>Explore</summary>
+  const moreActive = moreLinks.some(([, href]) => active(href));
+  const MoreMenu = () => (
+    <details className={`nav-menu${moreActive ? " nav-active" : ""}`}>
+      <summary>More</summary>
       <div className="nav-menu-panel">
-        {exploreLinks.map(([label, href]) => (
+        {moreLinks.map(([label, href]) => (
           <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>
         ))}
       </div>
@@ -421,13 +423,35 @@ function Header() {
     <a aria-current={active(primaryLink[1]) ? "page" : undefined} className="nav-primary" href={primaryLink[1]}>{primaryLink[0]}</a>
   );
   useEffect(() => {
+    const main = document.querySelector("main");
+    if (main && !main.id) main.id = "main-content";
+    const closeOpenMenus = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".nav-menu")) return;
+      document.querySelectorAll(".nav-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+    };
+    const closeMenusOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const openMenus = [...document.querySelectorAll<HTMLElement>(".nav-menu[open]")];
+      openMenus.forEach((menu) => menu.removeAttribute("open"));
+      if (openMenus.length) openMenus[0].querySelector<HTMLElement>("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", closeOpenMenus);
+    document.addEventListener("keydown", closeMenusOnEscape);
     fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
       .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
       .then((body) => setSignedIn(Boolean(body.authenticated)))
       .catch(() => setSignedIn(false));
+    return () => {
+      document.removeEventListener("pointerdown", closeOpenMenus);
+      document.removeEventListener("keydown", closeMenusOnEscape);
+    };
   }, []);
   return (
     <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <div className="charity-bar">
         Donate by Mail is a U.S. 501(c)(3) public charity
       </div>
@@ -436,7 +460,8 @@ function Header() {
           <SiteLogo />
           <nav className="desktop-nav" aria-label="Primary navigation">
             <PrimaryLink />
-            <ExploreMenu />
+            {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
+            <MoreMenu />
           </nav>
           <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           <button
@@ -453,7 +478,8 @@ function Header() {
         {open && (
           <nav id="mobile-navigation" className="mobile-nav" aria-label="Mobile navigation">
             <PrimaryLink />
-            <ExploreMenu />
+            {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
+            <MoreMenu />
             <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           </nav>
         )}
@@ -554,9 +580,6 @@ function Footer() {
 function HomePage() {
   return (
     <div className="page">
-      <a className="skip-link" href="#main-content">
-        Skip to main content
-      </a>
       <Header />
       <main id="main-content">
         <section className="home-hero">
@@ -1256,7 +1279,7 @@ function DonationPage() {
   return (
     <div className="page">
       <Header />
-      <main className="donation-main">
+      <main id="main-content" className="donation-main">
         <div className="flow-shell">
           <Progress step={step} />
           {step === 1 && (

@@ -1,6 +1,5 @@
-/* Keep the shared navigation readable on laptop widths. The seven-link
-   desktop row is too dense around 1024px, even though the page content still
-   has room for a two-column layout. */
+/* Keep the shared navigation readable on laptop widths. The grouped desktop
+   row still needs the full-width menu before the page content does. */
 @media (min-width: 901px) and (max-width: 1120px) {
   .page .desktop-nav {
     display: none;

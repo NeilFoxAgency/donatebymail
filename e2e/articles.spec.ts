@@ -47,16 +47,25 @@ test.describe("editorial article surface", () => {
 
   test("keeps the donor CTA prominent and groups secondary navigation", async ({ page }) => {
     await page.goto("/articles");
+    await expect(page.locator("a.skip-link")).toHaveCount(1);
+    await expect(page.locator("a.skip")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Donate a phone" }).first()).toBeVisible();
-    await expect(page.getByText("Explore", { exact: true })).toBeVisible();
-    await page.getByText("Explore", { exact: true }).click();
+    await expect(page.getByRole("link", { name: "How it works" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "For nonprofits" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Help and FAQs" }).first()).toBeVisible();
+    const desktopMore = page.locator(".desktop-nav .nav-menu");
+    await desktopMore.locator("summary").click();
+    await expect(desktopMore).toHaveAttribute("open", "");
+    await page.getByRole("heading", { name: "Blog" }).click();
+    await expect(desktopMore).not.toHaveAttribute("open", "");
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await page.getByRole("button", { name: "Open menu" }).click();
     await expect(page.getByRole("link", { name: "Donate a phone" }).last()).toBeVisible();
-    await page.getByText("Explore", { exact: true }).last().click();
+    await page.getByText("More", { exact: true }).last().click();
     await expect(page.getByRole("link", { name: "Blog" }).last()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".mobile-nav .nav-menu")).not.toHaveAttribute("open", "");
   });
 });
