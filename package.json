@@ -2,6 +2,9 @@
   "name": "donate-by-mail",
   "private": true,
   "version": "0.1.0",
+  "overrides": {
+    "undici": "7.29.0"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
