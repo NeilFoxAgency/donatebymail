@@ -136,7 +136,7 @@ function PrintDocument({ record, kind, onClose }: { record: DonationRecord; kind
 
   const print = () => {
     document.body.dataset.printTarget = kind;
-    trackEvent(isPacking ? 'packing_slip_printed' : 'acknowledgment_preview_printed', { donation_id: record.id });
+    trackEvent(isPacking ? 'packing_slip_printed' : 'acknowledgment_preview_printed');
     window.print();
   };
 

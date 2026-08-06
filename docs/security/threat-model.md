@@ -198,6 +198,14 @@ robots policy. Cloudflare-managed content-signal lines may still be prepended
 to `robots.txt`; the beta hostname remains protected by Access and the Worker
 also sends `X-Robots-Tag: noindex` for beta responses.
 
+The editorial MCP origin does not trust the presence of a Cloudflare Access
+header. For both the private and managed-OAuth beta hostnames it fetches the
+Access JWKS, verifies the RS256 signature and key ID, then checks the expected
+issuer, application audience, `type=app`, and bounded time claims. JWKS keys are
+cached briefly and refreshed on an unknown key ID; any malformed, expired,
+wrong-audience, or unverifiable token fails closed. The separate connector
+upstream remains protected by its own constant-time beta bearer secret.
+
 Public support-page images use `Referrer-Policy` at the element level and the
 legacy AppDeploy-hosted mascot URL has been replaced with the first-party asset
 so the preview host is not leaked through production HTML.
@@ -210,6 +218,8 @@ street address stay in the private workspace rather than routine email.
 The beta is a synthetic-data-only test environment, not a public beta approved
 for real donor data. Cloudflare Access is the required perimeter, with named
 human identities and a separate service-token policy for automation. The
+beta deployment disables its public `workers.dev` hostname so the Access
+boundary applies to every beta request path. The
 unauthenticated challenge, authorized one-time-PIN path, service-token path,
 logout, and production non-interference were verified on July 29, 2026.
 The passwordless PKCE callback is intentionally a separate, path-scoped
@@ -270,9 +280,12 @@ Version: working-tree-4707d2c4ea94795795c2e9ce581fa83289e5d37cf5fa03b973d62ca6b3
 
 ## Review references
 
-- [OWASP Top 10](https://owasp.org/Top10/2021/)
+- [OWASP Top 10:2025](https://owasp.org/Top10/)
 - [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
 - [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-- [MDN Content-Security-Policy reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy)
-- [MDN practical CSP implementation guide](https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/CSP)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [Supabase API security](https://supabase.com/docs/guides/api/securing-your-api)
+- [Supabase production checklist](https://supabase.com/docs/guides/deployment/going-into-prod)
+- [Cloudflare Workers security headers](https://developers.cloudflare.com/workers/examples/security-headers/)
 - [Cloudflare Workers security model](https://developers.cloudflare.com/workers/reference/security-model/)
+- [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)

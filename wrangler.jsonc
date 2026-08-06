@@ -36,7 +36,7 @@
   },
   "env": {
     "beta": {
-      "workers_dev": true,
+      "workers_dev": false,
       "assets": {
         "directory": "./dist",
         "binding": "ASSETS",
@@ -79,6 +79,8 @@
       },
       "vars": {
         "DEPLOYMENT_ENVIRONMENT": "beta",
+        "CF_ACCESS_TEAM_DOMAIN": "nameless-resonance-00ea.cloudflareaccess.com",
+        "CF_ACCESS_AUDIENCE": "24a4b765443b92f55680c9983cfdec85bf3dc9b03e572671141053dcfba9b959",
         "BREVO_SENDER_EMAIL": "contact@donatebymail.org",
         "BREVO_SENDER_NAME": "Donate by Mail Beta",
         "ADMIN_NOTIFICATION_TO": "tre@donatebymail.org",

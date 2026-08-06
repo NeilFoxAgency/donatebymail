@@ -15,17 +15,25 @@ for (const file of htmlFiles) {
   const canonical = get(html, /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']*)["']/i);
   const robots = get(html, /<meta[^>]+name=["']robots["'][^>]+content=["']([^"']*)["']/i).toLowerCase();
   const ogUrl = get(html, /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']*)["']/i);
+  const ogImage = get(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']*)["']/i);
+  const twitterImage = get(html, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']*)["']/i);
   if (!title || title.length < 10) failures.push(`${file}: missing or too-short title`);
   if (!description || description.length < 50 || description.length > 320) failures.push(`${file}: description should be 50-320 characters`);
   if (!canonical || !canonical.startsWith(`${SITE_ORIGIN}/`)) failures.push(`${file}: canonical must use ${SITE_ORIGIN}`);
   if (robots.includes("noindex")) failures.push(`${file}: public build contains noindex`);
   if (!ogUrl || ogUrl !== canonical) failures.push(`${file}: og:url must equal canonical`);
-  if (!/<meta[^>]+property=["']og:image["']/i.test(html)) failures.push(`${file}: missing og:image`);
+  if (!ogImage || !ogImage.startsWith(`${SITE_ORIGIN}/`)) failures.push(`${file}: og:image must be an absolute production URL`);
+  if (!twitterImage || !twitterImage.startsWith(`${SITE_ORIGIN}/`)) failures.push(`${file}: twitter:image must be an absolute production URL`);
+  if (/<meta[^>]+name=["']keywords["']/i.test(html)) failures.push(`${file}: keyword-stuffing meta tag is not allowed`);
   for (const image of html.matchAll(/<img\b([^>]*)>/gi)) {
     if (!/\balt=["'][^"']*["']/i.test(image[1])) failures.push(`${file}: image is missing alt text`);
   }
   if (/5e27aa4c670fcbb06b\.v2\.appdeploy\.ai|beta\.donatebymail\.org/i.test(html)) failures.push(`${file}: contains beta or AppDeploy URL`);
 }
+
+const homeHtml = htmlFiles.includes("index.html") ? readFileSync(resolve(directory, "index.html"), "utf8") : "";
+if (homeHtml && !/<script[^>]+type=["']application\/ld\+json["'][^>]*>[\s\S]*["']Organization["']/i.test(homeHtml))
+  failures.push("index.html: Organization structured data is missing");
 
 const sitemapPath = resolve(directory, "sitemap.xml");
 if (!existsSync(sitemapPath)) failures.push("sitemap.xml is missing from the build");

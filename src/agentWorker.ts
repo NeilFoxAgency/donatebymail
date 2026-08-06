@@ -7,6 +7,8 @@ type AgentWorkerEnv = Env & {
   SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
   AGENT_API_KEY?: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUDIENCE?: string;
   /** Dedicated beta-only credential used by the Cloudflare MCP Portal upstream. */
   MCP_ARTICLE_BEARER_TOKEN?: string;
 };
@@ -52,6 +54,34 @@ const JSON_HEADERS = {
 };
 
 const ARTICLE_OAUTH_SECURITY = [{ type: "oauth2", scopes: [] }];
+
+type AccessJwk = {
+  kid?: string;
+  kty?: string;
+  alg?: string;
+  use?: string;
+  n?: string;
+  e?: string;
+};
+
+type AccessJwksCache = {
+  domain: string;
+  expiresAt: number;
+  keys: Map<string, CryptoKey>;
+};
+
+type AccessClaims = {
+  aud?: string | string[];
+  exp?: number;
+  iat?: number;
+  iss?: string;
+  nbf?: number;
+  type?: string;
+};
+
+let accessJwksCache: AccessJwksCache | null = null;
+const ACCESS_JWKS_TTL_MS = 5 * 60 * 1000;
+const ACCESS_CLOCK_SKEW_SECONDS = 60;
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -552,6 +582,112 @@ async function safeSecretEqual(actual: string | null, expected?: string): Promis
   return difference === 0;
 }
 
+function base64UrlBytes(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/")
+      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const binary = atob(padded);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtJson<T>(value: string): T | null {
+  const bytes = base64UrlBytes(value);
+  if (!bytes) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function accessTeamDomain(value: string | undefined): string | null {
+  const domain = value?.trim().toLowerCase() || "";
+  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$/.test(domain)
+    ? domain
+    : null;
+}
+
+async function loadAccessKeys(
+  domain: string,
+  forceRefresh = false,
+): Promise<Map<string, CryptoKey>> {
+  if (!forceRefresh && accessJwksCache && accessJwksCache.domain === domain
+    && accessJwksCache.expiresAt > Date.now()) {
+    return accessJwksCache.keys;
+  }
+  const response = await fetch(`https://${domain}/cdn-cgi/access/certs`, {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error("access_jwks_unavailable");
+  const body = await response.json() as { keys?: AccessJwk[] };
+  if (!Array.isArray(body.keys)) throw new Error("access_jwks_invalid");
+  const keys = new Map<string, CryptoKey>();
+  for (const jwk of body.keys) {
+    if (jwk.kid && jwk.kty === "RSA" && jwk.alg === "RS256" && jwk.n && jwk.e) {
+      try {
+        const key = await crypto.subtle.importKey(
+          "jwk",
+          { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: jwk.alg, use: jwk.use || "sig", ext: true },
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          false,
+          ["verify"],
+        );
+        keys.set(jwk.kid, key);
+      } catch {
+        // Ignore malformed keys and fail closed if the token's key is absent.
+      }
+    }
+  }
+  if (!keys.size) throw new Error("access_jwks_empty");
+  accessJwksCache = { domain, keys, expiresAt: Date.now() + ACCESS_JWKS_TTL_MS };
+  return keys;
+}
+
+async function verifyCloudflareAccessJwt(
+  request: Request,
+  env: AgentWorkerEnv,
+): Promise<boolean> {
+  const domain = accessTeamDomain(env.CF_ACCESS_TEAM_DOMAIN);
+  const audience = env.CF_ACCESS_AUDIENCE?.trim();
+  if (!domain || !audience || audience.length > 256) return false;
+  const assertion = request.headers.get("cf-access-jwt-assertion");
+  const authorization = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  const token = assertion?.trim() || authorization;
+  if (!token || token.length > 16_384) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const header = decodeJwtJson<{ alg?: string; kid?: string }>(parts[0]);
+  const claims = decodeJwtJson<AccessClaims>(parts[1]);
+  const signature = base64UrlBytes(parts[2]);
+  if (!header?.kid || header.alg !== "RS256" || !claims || !signature) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.type !== "app" || claims.iss !== `https://${domain}`
+    || typeof claims.iat !== "number" || claims.iat > now + ACCESS_CLOCK_SKEW_SECONDS
+    || typeof claims.exp !== "number" || claims.exp <= now - ACCESS_CLOCK_SKEW_SECONDS
+    || (typeof claims.nbf === "number" && claims.nbf > now + ACCESS_CLOCK_SKEW_SECONDS)) return false;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(audience)) return false;
+  const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  let key: CryptoKey | undefined;
+  try {
+    key = (await loadAccessKeys(domain)).get(header.kid);
+    if (!key) key = (await loadAccessKeys(domain, true)).get(header.kid);
+    if (!key) return false;
+    return await crypto.subtle.verify(
+      { name: "RSASSA-PKCS1-v1_5" },
+      key,
+      signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength) as ArrayBuffer,
+      signingInput,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -823,20 +959,17 @@ async function callTool(
 async function isTrustedArticleRequest(request: Request, env: AgentWorkerEnv): Promise<boolean> {
   const url = new URL(request.url);
   if (url.hostname === "mcp-beta.donatebymail.org") {
-    return Boolean(request.headers.get("cf-access-jwt-assertion"));
+    return verifyCloudflareAccessJwt(request, env);
   }
   if (url.hostname === "mcp-connector-beta.donatebymail.org") {
     const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
     return safeSecretEqual(bearer, env.MCP_ARTICLE_BEARER_TOKEN);
   }
   if (url.hostname === "mcp-oauth-beta.donatebymail.org") {
-    // Cloudflare Access validates the managed-OAuth token before forwarding
-    // the request. Depending on the MCP client/Access transport, the edge may
-    // expose either the signed assertion or the validated bearer header to the
-    // origin. Keep this hostname separate from the bearer-only portal upstream;
-    // requests cannot reach this path without the Access application policy.
-    return Boolean(request.headers.get("cf-access-jwt-assertion")
-      || request.headers.get("authorization")?.match(/^Bearer\s+\S+/i));
+    // Cloudflare Access validates the managed-OAuth token before forwarding,
+    // but the origin must still verify the signed assertion (or forwarded
+    // bearer JWT) rather than trusting a header's presence.
+    return verifyCloudflareAccessJwt(request, env);
   }
   return false;
 }

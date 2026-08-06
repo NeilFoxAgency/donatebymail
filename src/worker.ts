@@ -1565,6 +1565,31 @@ const PUBLIC_SITEMAP_PATHS = [
   "/accessibility.html",
 ] as const;
 
+const NON_INDEXABLE_PATHS = new Set([
+  "/login",
+  "/account",
+  "/settings",
+  "/staff",
+  "/partner",
+  "/track",
+]);
+
+function normalizedPath(pathname: string): string {
+  const value = pathname.replace(/\/+$/, "");
+  return value || "/";
+}
+
+export function isKnownHtmlPath(pathname: string): boolean {
+  const path = normalizedPath(pathname);
+  if (path === "/index.html" || path === "/donate-phone" || path === "/donate-phone.html"
+    || path === "/articles" || path === "/articles.html") return true;
+  if ((PUBLIC_SITEMAP_PATHS as readonly string[]).some((publicPath) =>
+    publicPath === path || (publicPath.endsWith(".html") && publicPath.slice(0, -5) === path))) return true;
+  return /^\/articles\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path)
+    || /^\/c\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path)
+    || NON_INDEXABLE_PATHS.has(path);
+}
+
 export function escapeXml(value: string): string {
   return value.replace(/[<>&'\"]/g, (character) => ({
     "<": "&lt;",
@@ -1743,6 +1768,14 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       }
     }
     const response = await env.ASSETS.fetch(request);
+    if (request.method === "GET" && response.status === 200
+      && response.headers.get("content-type")?.toLowerCase().includes("text/html")
+      && !isKnownHtmlPath(url.pathname)) {
+      return new Response("Not found", {
+        status: 404,
+        headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "x-robots-tag": "noindex" },
+      });
+    }
     if (env.DEPLOYMENT_ENVIRONMENT !== "beta") return response;
 
     const headers = new Headers(response.headers);
@@ -1764,9 +1797,10 @@ export function hardened(response: Response, request: Request, env: WorkerEnv): 
   headers.set("x-permitted-cross-domain-policies", "none");
   headers.set("cross-origin-resource-policy", "same-origin");
   if (env.DEPLOYMENT_ENVIRONMENT === "production") headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
-  if (env.DEPLOYMENT_ENVIRONMENT === "beta") headers.set("x-robots-tag", "noindex, nofollow, noarchive");
-  const path = new URL(request.url).pathname;
-  if (path.startsWith("/api/") || ["/staff", "/account", "/partner"].includes(path.replace(/\/$/, "")))
+  const path = normalizedPath(new URL(request.url).pathname);
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta" || NON_INDEXABLE_PATHS.has(path) || path.startsWith("/api/"))
+    headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+  if (path.startsWith("/api/") || NON_INDEXABLE_PATHS.has(path))
     headers.set("cache-control", "no-store");
   const refreshed = refreshedCookies.get(request);
   if (refreshed) headers.append("set-cookie", refreshed);

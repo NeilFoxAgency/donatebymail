@@ -23,7 +23,7 @@
     "preview": "vite preview",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
-    "db:reset": "supabase db reset --local",
+    "db:reset": "supabase db reset --local && node scripts/wait-for-local-db.mjs",
     "db:lint": "supabase db lint --local --schema app_private,api --level warning --fail-on warning",
     "db:advisors": "supabase db advisors --local --type all --level warn --fail-on warn",
     "db:types": "supabase gen types typescript --local --schema api,app_private > src/types/database.generated.ts",
