@@ -149,7 +149,7 @@ export function ArticlesPage({ slug }: { slug?: string }) {
   return (
     <main id="main-content" className="articles-page">
       <div className="articles-shell">
-        <nav className="article-breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><span>{slug ? article?.title || "Article" : "Articles"}</span></nav>
+        <nav className="article-breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><span>{slug ? article?.title || "Article" : "Blog"}</span></nav>
         {loading && <p className="article-status" role="status">Loading articles…</p>}
         {error && <div className="article-error" role="alert"><p>{error}</p><a className="text-link" href="/articles">Try again <ArrowRight aria-hidden="true" /></a></div>}
         {!loading && !error && slug && article && <>
@@ -162,11 +162,11 @@ export function ArticlesPage({ slug }: { slug?: string }) {
             <ArticleBlocks blocks={article.contentBlocks} />
             <p className="article-integrity">Article revision {article.version} · content checksum {article.contentHash}</p>
           </article>
-          <a className="text-link article-back" href="/articles"><ArrowLeft aria-hidden="true" /> Back to articles</a>
+          <a className="text-link article-back" href="/articles"><ArrowLeft aria-hidden="true" /> Back to Blog</a>
         </>}
         {!loading && !error && slug && !article && <div className="article-error" role="alert"><h1>Article not found</h1><p>That article may have moved or is not published yet.</p><a className="text-link" href="/articles">Browse articles <ArrowRight aria-hidden="true" /></a></div>}
         {!loading && !error && !slug && <>
-          <header className="articles-heading"><p className="kicker">Ideas, guidance, and updates</p><h1>Articles</h1><p>Practical notes about donating old phones, choosing a nonprofit, and the work behind a clear mail-in process.</p></header>
+          <header className="articles-heading"><p className="kicker">Ideas, guidance, and updates</p><h1>Blog</h1><p>Practical notes about donating old phones, choosing a nonprofit, and the work behind a clear mail-in process.</p></header>
           {articles.length ? <div className="article-grid">{articles.map((item) => <ArticleCard key={item.id} article={item} />)}</div> : <section className="articles-empty"><FileText aria-hidden="true" /><h2>New articles are on the way.</h2><p>We’re preparing practical guidance for donors and nonprofit partners.</p><a className="button primary" href="/donate-phone.html">Donate a Phone <ArrowRight aria-hidden="true" /></a></section>}
         </>}
       </div>

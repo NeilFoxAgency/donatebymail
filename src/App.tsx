@@ -395,17 +395,31 @@ function SiteLogo() {
 function Header() {
   const [open, setOpen] = useState(false),
     [signedIn, setSignedIn] = useState(false),
-    links = [
-      ["Donate a phone", "/donate-phone.html"],
+    primaryLink = ["Donate a phone", "/donate-phone.html"] as const,
+    exploreLinks = [
       ["How it works", "/how-it-works.html"],
       ["Prepare your phone", "/prepare-phone.html"],
       ["For nonprofits", "/for-nonprofits.html"],
       ["Help and FAQs", "/resources.html"],
-      ["Articles", "/articles"],
+      ["Blog", "/articles"],
       ["About", "/about.html"],
-    ],
+    ] as const,
     currentPath = window.location.pathname.replace(/\/$/, "") || "/",
     active = (h: string) => h === "/articles" ? currentPath === "/articles" || currentPath === "/articles.html" || currentPath.startsWith("/articles/") : currentPath === h.replace(/\.html$/, "") || currentPath === h;
+  const exploreActive = exploreLinks.some(([, href]) => active(href));
+  const ExploreMenu = () => (
+    <details className={`nav-menu${exploreActive ? " nav-active" : ""}`}>
+      <summary>Explore</summary>
+      <div className="nav-menu-panel">
+        {exploreLinks.map(([label, href]) => (
+          <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>
+        ))}
+      </div>
+    </details>
+  );
+  const PrimaryLink = () => (
+    <a aria-current={active(primaryLink[1]) ? "page" : undefined} className="nav-primary" href={primaryLink[1]}>{primaryLink[0]}</a>
+  );
   useEffect(() => {
     fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
       .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
@@ -421,16 +435,8 @@ function Header() {
         <div className="header-inner">
           <SiteLogo />
           <nav className="desktop-nav" aria-label="Primary navigation">
-            {links.map(([l, h], i) => (
-              <a
-                aria-current={active(h) ? "page" : undefined}
-                className={i === 0 ? "nav-primary" : ""}
-                href={h}
-                key={h}
-              >
-                {l}
-              </a>
-            ))}
+            <PrimaryLink />
+            <ExploreMenu />
           </nav>
           <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           <button
@@ -446,16 +452,8 @@ function Header() {
         </div>
         {open && (
           <nav id="mobile-navigation" className="mobile-nav" aria-label="Mobile navigation">
-            {links.map(([l, h], i) => (
-              <a
-                aria-current={active(h) ? "page" : undefined}
-                className={i === 0 ? "nav-primary" : ""}
-                href={h}
-                key={h}
-              >
-                {l}
-              </a>
-            ))}
+            <PrimaryLink />
+            <ExploreMenu />
             <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           </nav>
         )}
@@ -537,7 +535,7 @@ function Footer() {
           <a href="/how-it-works.html">How it works</a>
           <a href="/for-nonprofits.html">For nonprofits</a>
           <a href="/resources.html">Help and FAQs</a>
-          <a href="/articles">Articles</a>
+          <a href="/articles">Blog</a>
           <a href="/transparency.html">Transparency</a>
         </div>
         <div>

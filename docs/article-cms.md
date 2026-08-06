@@ -1,6 +1,8 @@
 # Donate by Mail article CMS
 
-The public editorial surface is `/articles` and `/articles/:slug`. Only
+The public editorial surface is called **Blog** and is served at `/articles`
+and `/articles/:slug` (the route remains `/articles` for compatibility and
+canonical SEO). Only
 published revisions are returned by the public Worker API. Drafts, scheduled
 revisions, staff identity, and internal policy records stay in the private
 Supabase schema.

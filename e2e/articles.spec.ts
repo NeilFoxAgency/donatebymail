@@ -29,7 +29,7 @@ test.describe("editorial article surface", () => {
 
   test("lists and renders typed article blocks with metadata", async ({ page }) => {
     await page.goto("/articles");
-    await expect(page.getByRole("heading", { name: "Articles" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blog" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Phone data basics" })).toBeVisible();
     await page.getByRole("link", { name: "Phone data basics" }).click();
     await expect(page).toHaveURL(/\/articles\/phone-data-basics$/);
@@ -43,5 +43,20 @@ test.describe("editorial article surface", () => {
     await page.setViewportSize({ width: 375, height: 800 });
     await page.goto("/articles");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  });
+
+  test("keeps the donor CTA prominent and groups secondary navigation", async ({ page }) => {
+    await page.goto("/articles");
+    await expect(page.getByRole("link", { name: "Donate a phone" }).first()).toBeVisible();
+    await expect(page.getByText("Explore", { exact: true })).toBeVisible();
+    await page.getByText("Explore", { exact: true }).click();
+    await expect(page.getByRole("link", { name: "For nonprofits" }).first()).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await expect(page.getByRole("link", { name: "Donate a phone" }).last()).toBeVisible();
+    await page.getByText("Explore", { exact: true }).last().click();
+    await expect(page.getByRole("link", { name: "Blog" }).last()).toBeVisible();
   });
 });

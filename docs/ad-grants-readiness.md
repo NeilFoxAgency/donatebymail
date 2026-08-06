@@ -18,7 +18,7 @@ Reviewed August 5, 2026 against current official Google for Nonprofits guidance.
 | No excessive commercial activity | The site states that Donate by Mail is not a trade-in marketplace, donors are not paid, and estimates are informational. No advertising or affiliate links are present. |
 | Contact and policies | Contact, Privacy, Terms, Accessibility, and Transparency pages are linked site-wide. |
 | Search discovery | `robots.txt`, `sitemap.xml`, canonical metadata, unique page descriptions, and accurate Organization, WebSite, CollectionPage, and Article structured data are included where the corresponding content is visible. |
-| Ongoing original content | `/articles` provides a crawlable editorial section with typed, human-readable articles, per-article metadata, canonical URLs, and Article structured data. Publishing is versioned and scheduled through the beta agent CMS; drafts never appear publicly. |
+| Ongoing original content | The **Blog** at `/articles` provides a crawlable editorial section with typed, human-readable articles, per-article metadata, canonical URLs, and Article structured data. Publishing is versioned and scheduled through the beta agent CMS; drafts never appear publicly. |
 
 ## Security and crawlability checks added in the beta build
 
