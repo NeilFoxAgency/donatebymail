@@ -103,13 +103,12 @@ branch must be deployed to beta and verified before any production rollout.
 
 Articles are stored as immutable revisions in the private Supabase schema and
 served through narrow public read RPCs. The Workspace Agent can list and read
-published articles, create drafts, update content, and schedule an exact
-revision. Immediate publication remains approval-gated by policy; scheduled
-publication runs from the exact revision selected by the agent. Content blocks
-are validated server-side (paragraphs, headings, lists, quotes, and safe links)
-and rendered without raw HTML injection. This keeps the publishing surface
-auditable while leaving room to allow low-risk publication automatically after
-the beta has been tested.
+published articles, create drafts, update content, schedule an exact revision,
+and publish an exact revision under the active beta policy. Both immediate and
+scheduled publication retain server-side revision matching, typed-content
+validation, idempotency, and audit records. Content blocks are validated
+server-side (paragraphs, headings, lists, quotes, and safe links) and rendered
+without raw HTML injection.
 
 This is readiness work, not a claim of Google Ad Grants approval. The account
 still needs organization verification, compliant campaigns, conversion

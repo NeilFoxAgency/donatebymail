@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(29);
 
 select has_table('app_private', 'articles', 'articles remain in the private schema');
 select has_table('app_private', 'article_revisions', 'article revisions remain private');
@@ -51,7 +51,14 @@ select is((select status::text from app_private.articles where slug='phone-data-
 select is((api.get_published_article('phone-data-basics')->>'title'), 'Phone data basics, updated', 'public detail returns only the published revision');
 select is(jsonb_array_length(api.get_published_articles()), 1, 'public list includes the published article');
 select is((select count(*)::integer from app_private.audit_events where action_name = 'article.publish_scheduled' and entity_id = (select (result->'result'->>'articleId')::uuid from article_create_execution)), 1, 'scheduled publication writes a system audit event');
-select is((select result->>'outcome' from (select api.evaluate_agent_command('article-agent','publish_article','article',(select (result->'result'->>'articleId')::uuid from article_create_execution),'moderate','{}',repeat('4',64),gen_random_uuid(),'article-cms-publish-1') result) decision), 'REQUIRE_APPROVAL', 'immediate article publication remains approval-gated');
+create temporary table article_publish_decision as
+select api.evaluate_agent_command('article-agent','publish_article','article',(select (result->'result'->>'articleId')::uuid from article_create_execution),'moderate','{}',repeat('4',64),gen_random_uuid(),'article-cms-publish-1') result;
+select is((select result->>'outcome' from article_publish_decision), 'ALLOW_AUTOMATICALLY', 'exact-revision article publication is automatically allowed');
+select lives_ok(format($$select api.agent_execute_article_command(%L::uuid,'article-agent','publish_article',%L::uuid,%L::jsonb)$$,
+  (select (result->>'decisionId')::uuid from article_publish_decision), (select (result->'result'->>'articleId')::uuid from article_create_execution),
+  format('{"revisionId":"%s"}', (select id from app_private.article_revisions where article_id=(select (result->'result'->>'articleId')::uuid from article_create_execution) order by version desc limit 1))
+), 'automatic publication executes only the requested exact revision');
+select is((select count(*)::integer from app_private.audit_events where action_name = 'agent.publish_article' and entity_id = (select (result->'result'->>'articleId')::uuid from article_create_execution)), 1, 'automatic publication writes an agent audit event');
 
 update app_private.articles set status = 'archived' where slug = 'phone-data-basics';
 select throws_ok($$update app_private.articles set status = 'published' where slug = 'phone-data-basics'$$, '42501', 'archived article cannot be published', 'archived articles cannot be republished');

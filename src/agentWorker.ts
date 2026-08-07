@@ -505,7 +505,7 @@ const MCP_TOOLS: McpTool[] = [
   {
     name: "publish_article",
     title: "Publish an article revision",
-    description: "Request publication of one exact article revision. The active policy normally requires approval; this tool never bypasses that decision.",
+    description: "Publish one exact article revision after the active policy authorizes the command. The current beta policy allows this automatically while preserving validation and audit attribution.",
     inputSchema: {
       type: "object", additionalProperties: false,
       required: ["articleId", "revisionId", "idempotencyKey"],
@@ -1008,7 +1008,7 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: articleOnly ? "donate-by-mail-article-publisher" : "donate-by-mail-operations", version: "0.4.0" },
         instructions: articleOnly
-          ? "This connector is limited to Donate by Mail editorial content. Use typed article blocks only. Draft creation, revision creation, and future scheduling are policy-controlled; immediate publication remains approval-gated unless the active policy explicitly allows it. Do not request donor, partner, financial, credential, or arbitrary database data."
+          ? "This connector is limited to Donate by Mail editorial content. Use typed article blocks only. Draft creation, revision creation, future scheduling, and exact-revision publication are policy-controlled; the current beta policy allows these bounded editorial commands automatically. Do not request donor, partner, financial, credential, or arbitrary database data."
           : "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
       },
     }, negotiatedProtocolVersion);
