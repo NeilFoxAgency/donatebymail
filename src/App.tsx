@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -48,6 +48,8 @@ import { DonorAccountPage } from "./gen2/DonorAccountPage";
 import { PartnerPage } from "./gen2/PartnerPage";
 import { CampaignPage } from "./gen2/CampaignPage";
 import { AccountGatewayPage, AccountSettingsPage } from "./gen2/AccountGatewayPage";
+import { ArticlesPage } from "./gen2/ArticlesPage";
+import { trackEvent } from "./analytics";
 type SubmissionResponse = {
   ok: boolean;
   message?: string;
@@ -57,6 +59,27 @@ type SubmissionResponse = {
   trackingUrl?: string;
   notificationPending?: boolean;
 };
+
+type TurnstileApi = {
+  render: (container: HTMLElement, options: {
+    sitekey: string;
+    action: string;
+    callback: (token: string) => void;
+    "expired-callback": () => void;
+    "error-callback": () => void;
+  }) => string;
+  reset: (widgetId?: string) => void;
+  remove: (widgetId: string) => void;
+};
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileApi;
+  }
+}
+
+const TURNSTILE_SITE_KEY =
+  (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() || "";
 const brands: Brand[] = ["Apple", "Samsung", "Google", "Motorola", "Other"],
   ages: Age[] = ["0-1 year", "2-3 years", "4-5 years", "6+ years"],
   conditions: Condition[] = ["Excellent", "Good", "Fair", "Damaged"],
@@ -248,6 +271,74 @@ function loadPledgeScript(url: string) {
     document.head.appendChild(script);
   });
 }
+
+function loadTurnstileScript() {
+  return new Promise<void>((resolve, reject) => {
+    if (window.turnstile) return resolve();
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-dbm-turnstile-script="true"]',
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("load failed")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    script.dataset.dbmTurnstileScript = "true";
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(new Error("load failed")), { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function TurnstileWidget({
+  onToken,
+  onResetReady,
+}: {
+  onToken: (token: string) => void;
+  onResetReady: (reset: () => void) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tokenRef = useRef(onToken);
+  tokenRef.current = onToken;
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || !containerRef.current) return;
+    let widgetId: string | null = null;
+    let disposed = false;
+    const reset = () => {
+      tokenRef.current("");
+      if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
+    };
+    onResetReady(reset);
+    void loadTurnstileScript()
+      .then(() => {
+        if (disposed || !containerRef.current || !window.turnstile) return;
+        widgetId = window.turnstile.render(containerRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          action: "donation_submit",
+          callback: (token) => tokenRef.current(token),
+          "expired-callback": () => tokenRef.current(""),
+          "error-callback": () => tokenRef.current(""),
+        });
+      })
+      .catch(() => tokenRef.current(""));
+    return () => {
+      disposed = true;
+      if (widgetId && window.turnstile) window.turnstile.remove(widgetId);
+    };
+  }, [onResetReady]);
+  if (!TURNSTILE_SITE_KEY) return null;
+  return (
+    <div className="turnstile-field" aria-label="Security verification">
+      <p>Security verification</p>
+      <div ref={containerRef} data-action="turnstile-spin-v1" />
+    </div>
+  );
+}
+
 async function fetchCharityDetails(charity: SelectedCharity) {
   try {
     const response = await fetch(
@@ -265,6 +356,7 @@ async function fetchCharityDetails(charity: SelectedCharity) {
 }
 async function sendDonation(
   record: DonationSubmission,
+  turnstileToken = "",
 ): Promise<SubmissionResponse> {
   const response = await fetch("/api/donations", {
       method: "POST",
@@ -272,7 +364,9 @@ async function sendDonation(
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify(record),
+      body: JSON.stringify(
+        turnstileToken ? { ...record, turnstileToken } : record,
+      ),
     }),
     body = (await response.json().catch(() => ({}))) as SubmissionResponse;
   if (!response.ok)
@@ -301,24 +395,63 @@ function SiteLogo() {
 function Header() {
   const [open, setOpen] = useState(false),
     [signedIn, setSignedIn] = useState(false),
-    links = [
-      ["Donate a phone", "/donate-phone.html"],
+    primaryLink = ["Donate a phone", "/donate-phone.html"] as const,
+    visibleLinks = [
       ["How it works", "/how-it-works.html"],
-      ["Prepare your phone", "/prepare-phone.html"],
       ["For nonprofits", "/for-nonprofits.html"],
       ["Help and FAQs", "/resources.html"],
+    ] as const,
+    moreLinks = [
+      ["Prepare your phone", "/prepare-phone.html"],
+      ["Blog", "/articles"],
       ["About", "/about.html"],
-    ],
-    current = window.location.pathname.split("/").pop() || "index.html",
-    active = (h: string) => current === h.replace("/", "");
+    ] as const,
+    currentPath = window.location.pathname.replace(/\/$/, "") || "/",
+    active = (h: string) => h === "/articles" ? currentPath === "/articles" || currentPath === "/articles.html" || currentPath.startsWith("/articles/") : currentPath === h.replace(/\.html$/, "") || currentPath === h;
+  const moreActive = moreLinks.some(([, href]) => active(href));
+  const MoreMenu = () => (
+    <details className={`nav-menu${moreActive ? " nav-active" : ""}`}>
+      <summary>More</summary>
+      <div className="nav-menu-panel">
+        {moreLinks.map(([label, href]) => (
+          <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>
+        ))}
+      </div>
+    </details>
+  );
+  const PrimaryLink = () => (
+    <a aria-current={active(primaryLink[1]) ? "page" : undefined} className="nav-primary" href={primaryLink[1]}>{primaryLink[0]}</a>
+  );
   useEffect(() => {
+    const main = document.querySelector("main");
+    if (main && !main.id) main.id = "main-content";
+    const closeOpenMenus = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".nav-menu")) return;
+      document.querySelectorAll(".nav-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+    };
+    const closeMenusOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const openMenus = [...document.querySelectorAll<HTMLElement>(".nav-menu[open]")];
+      openMenus.forEach((menu) => menu.removeAttribute("open"));
+      if (openMenus.length) openMenus[0].querySelector<HTMLElement>("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", closeOpenMenus);
+    document.addEventListener("keydown", closeMenusOnEscape);
     fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
       .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
       .then((body) => setSignedIn(Boolean(body.authenticated)))
       .catch(() => setSignedIn(false));
+    return () => {
+      document.removeEventListener("pointerdown", closeOpenMenus);
+      document.removeEventListener("keydown", closeMenusOnEscape);
+    };
   }, []);
   return (
     <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <div className="charity-bar">
         Donate by Mail is a U.S. 501(c)(3) public charity
       </div>
@@ -326,16 +459,9 @@ function Header() {
         <div className="header-inner">
           <SiteLogo />
           <nav className="desktop-nav" aria-label="Primary navigation">
-            {links.map(([l, h], i) => (
-              <a
-                aria-current={active(h) ? "page" : undefined}
-                className={i === 0 ? "nav-primary" : ""}
-                href={h}
-                key={h}
-              >
-                {l}
-              </a>
-            ))}
+            <PrimaryLink />
+            {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
+            <MoreMenu />
           </nav>
           <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           <button
@@ -343,23 +469,17 @@ function Header() {
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
+            aria-controls="mobile-navigation"
             aria-label={open ? "Close menu" : "Open menu"}
           >
             {open ? "Close" : "Menu"}
           </button>
         </div>
         {open && (
-          <nav className="mobile-nav" aria-label="Mobile navigation">
-            {links.map(([l, h], i) => (
-              <a
-                aria-current={active(h) ? "page" : undefined}
-                className={i === 0 ? "nav-primary" : ""}
-                href={h}
-                key={h}
-              >
-                {l}
-              </a>
-            ))}
+          <nav id="mobile-navigation" className="mobile-nav" aria-label="Mobile navigation">
+            <PrimaryLink />
+            {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
+            <MoreMenu />
             <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
           </nav>
         )}
@@ -376,7 +496,7 @@ function SocialLinks() {
       <a
         href="https://x.com/donatebymail"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on X"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -386,7 +506,7 @@ function SocialLinks() {
       <a
         href="https://www.facebook.com/people/Donate-by-Mail/61551982935106/"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on Facebook"
       >
         <svg viewBox="0 0 320 512" aria-hidden="true">
@@ -396,7 +516,7 @@ function SocialLinks() {
       <a
         href="https://bsky.app/profile/donatebymail.bsky.social"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         aria-label="Donate by Mail on Bluesky"
       >
         <img
@@ -441,6 +561,7 @@ function Footer() {
           <a href="/how-it-works.html">How it works</a>
           <a href="/for-nonprofits.html">For nonprofits</a>
           <a href="/resources.html">Help and FAQs</a>
+          <a href="/articles">Blog</a>
           <a href="/transparency.html">Transparency</a>
         </div>
         <div>
@@ -459,9 +580,6 @@ function Footer() {
 function HomePage() {
   return (
     <div className="page">
-      <a className="skip-link" href="#main-content">
-        Skip to main content
-      </a>
       <Header />
       <main id="main-content">
         <section className="home-hero">
@@ -969,8 +1087,13 @@ function DonationPage() {
     [draftSaved, setDraftSaved] = useState(false),
     [submitting, setSubmitting] = useState(false),
     [submitError, setSubmitError] = useState(""),
+    [turnstileToken, setTurnstileToken] = useState(""),
     charityRef = useRef<HTMLDivElement>(null),
-    submissionAttempt = useRef<SubmissionAttempt | null>(null);
+    submissionAttempt = useRef<SubmissionAttempt | null>(null),
+    turnstileResetRef = useRef<(() => void) | null>(null),
+    registerTurnstileReset = useCallback((reset: () => void) => {
+      turnstileResetRef.current = reset;
+    }, []);
   useEffect(() => {
     const cleanup = () => document.body.removeAttribute("data-print-target");
     window.addEventListener("afterprint", cleanup);
@@ -1091,6 +1214,10 @@ function DonationPage() {
         requestAnimationFrame(() => charityRef.current?.focus());
         return;
       }
+      if (TURNSTILE_SITE_KEY && !turnstileToken) {
+        setSubmitError("Please complete the security verification and try again.");
+        return;
+      }
       const intent = { donor, shippingMethod, devices, charity: selectedCharity,
         campaignSlug: campaignSlug || undefined };
       const fingerprint = submissionIntentFingerprint(intent);
@@ -1114,7 +1241,7 @@ function DonationPage() {
       };
       setSubmitting(true);
       try {
-        const response = await sendDonation(next),
+        const response = await sendDonation(next, turnstileToken),
           final = {
             ...next,
             id: response.donationId || next.id,
@@ -1126,6 +1253,11 @@ function DonationPage() {
         setTrackingLink(response.trackingUrl || "");
         setNotificationPending(Boolean(response.notificationPending));
         setStep(4);
+        trackEvent("donation_packet_created", {
+          device_count: next.devices.length,
+          shipping_method: next.shippingMethod,
+          selected_charity: Boolean(next.charity.pledgeId),
+        });
         submissionAttempt.current = null;
         localStorage.removeItem("donate-by-mail-draft");
       } catch (error) {
@@ -1135,6 +1267,8 @@ function DonationPage() {
             : "We could not send the donation packet. Please try again.",
         );
       } finally {
+        turnstileResetRef.current?.();
+        setTurnstileToken("");
         setSubmitting(false);
       }
     },
@@ -1145,7 +1279,7 @@ function DonationPage() {
   return (
     <div className="page">
       <Header />
-      <main className="donation-main">
+      <main id="main-content" className="donation-main">
         <div className="flow-shell">
           <Progress step={step} />
           {step === 1 && (
@@ -1508,6 +1642,12 @@ function DonationPage() {
                     Restore saved draft
                   </button>
                 </div>
+                {TURNSTILE_SITE_KEY && (
+                  <TurnstileWidget
+                    onToken={setTurnstileToken}
+                    onResetReady={registerTurnstileReset}
+                  />
+                )}
                 {submitError && (
                   <p className="submit-error" role="alert">
                     {submitError}
@@ -1774,6 +1914,11 @@ function App() {
     return <div className="page"><Header /><AccountSettingsPage /><Footer /></div>;
   if (path === "/partner" || path === "/partner/")
     return <div className="page"><Header /><PartnerPage /><Footer /></div>;
+  if (path === "/articles" || path === "/articles/" || path === "/articles.html")
+    return <div className="page"><Header /><ArticlesPage /><Footer /></div>;
+  const articleMatch = path.match(/^\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+  if (articleMatch)
+    return <div className="page"><Header /><ArticlesPage slug={articleMatch[1]} /><Footer /></div>;
   const campaignMatch = path.match(/^\/c\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
   if (campaignMatch)
     return <div className="page"><Header /><CampaignPage slug={campaignMatch[1]} /><Footer /></div>;

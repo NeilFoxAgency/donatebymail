@@ -720,7 +720,12 @@ body.support-page {
     border-top: 0;
   }
   .doggo-guide-inner {
-    grid-template-columns: 9rem 1fr;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .doggo-guide-inner > img {
+    width: min(12rem, 60vw);
+    margin-inline: auto;
   }
   .doggo-guide h2 {
     font-size: 2rem;

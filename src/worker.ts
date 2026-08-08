@@ -22,9 +22,11 @@ import { canonicalAuthorizationInput } from "./gen2/authorizationFingerprint";
 
 type BrevoRecipient = { email: string; name?: string };
 
-type WorkerEnv = Env & {
+type WorkerEnv = Omit<Env, "DEPLOYMENT_ENVIRONMENT"> & {
   PLEDGE_API_KEY?: string;
   DEPLOYMENT_ENVIRONMENT?: "production" | "beta";
+  TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_HOSTNAMES?: string;
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
   SUPABASE_SECRET_KEY?: string;
@@ -116,6 +118,7 @@ async function supabaseRpc<T>(
     "content-profile": "api",
     "accept-profile": "api",
   };
+  const correlationId = crypto.randomUUID();
   // Legacy service-role JWTs require Authorization; modern sb_secret keys must
   // be sent only as apikey so the Supabase gateway assigns the service role.
   if (env.SUPABASE_SECRET_KEY.startsWith("eyJ"))
@@ -129,10 +132,9 @@ async function supabaseRpc<T>(
     },
   );
   if (!response.ok) {
-    const diagnostic = (await response.text()).slice(0, 300).replace(/[\r\n]+/g, " ");
     console.error(JSON.stringify({
       event: "supabase_rpc_failed", functionName, status: response.status,
-      host: new URL(env.SUPABASE_URL).hostname, diagnostic,
+      correlationId,
     }));
     throw new Error("The beta data service rejected the request.");
   }
@@ -581,6 +583,56 @@ async function handleOrganizationLookup(
   }
 }
 
+const DEFAULT_TURNSTILE_HOSTNAMES = new Set([
+  "donatebymail.org",
+  "www.donatebymail.org",
+]);
+
+/** Validate the one-time Turnstile token at the server boundary. */
+export async function verifyTurnstile(
+  request: Request,
+  env: WorkerEnv,
+  token: string | undefined,
+): Promise<boolean> {
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta") return true;
+  if (!env.TURNSTILE_SECRET_KEY || !token || token.length > 2048) return false;
+  const configuredHostnames = new Set(
+    (env.TURNSTILE_HOSTNAMES || "")
+      .split(",")
+      .map((hostname) => hostname.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const expectedHostnames = configuredHostnames.size
+    ? configuredHostnames
+    : DEFAULT_TURNSTILE_HOSTNAMES;
+  try {
+    const response = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          secret: env.TURNSTILE_SECRET_KEY,
+          response: token,
+          remoteip: request.headers.get("cf-connecting-ip") || "",
+        }),
+      },
+    );
+    if (!response.ok) return false;
+    const result = await response.json() as {
+      success?: boolean;
+      action?: string;
+      hostname?: string;
+    };
+    return result.success === true
+      && result.action === "donation_submit"
+      && typeof result.hostname === "string"
+      && expectedHostnames.has(result.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 async function handleDonationSubmission(
   request: Request,
   env: WorkerEnv,
@@ -603,6 +655,14 @@ async function handleDonationSubmission(
       400,
     );
   }
+  const rawRecord = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+  const turnstileToken = stringValue(rawRecord?.turnstileToken);
+  if (rawRecord) {
+    const { turnstileToken: _ignoredTurnstileToken, ...submissionPayload } = rawRecord;
+    payload = submissionPayload;
+  }
   if (!validateDonationSubmission(payload)) {
     return json(
       {
@@ -612,6 +672,8 @@ async function handleDonationSubmission(
       400,
     );
   }
+  if (env.DEPLOYMENT_ENVIRONMENT !== "beta" && !(await verifyTurnstile(request, env, turnstileToken)))
+    return json({ ok: false, message: "Security verification could not be completed. Please try again." }, 403);
   const submittedRequestHash = await sha256Hex(stableJson(payload));
   if (env.DEPLOYMENT_ENVIRONMENT === "beta" && !(await anonymousRateAllowed(request, env, "donation_submit", 10, 3600)))
     return json({ ok: false, message: "Too many test submissions. Please try again later." }, 429);
@@ -1311,6 +1373,12 @@ async function executeAllowedAgentCommand(
   decision: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
   if (decision.replayed || decision.outcome !== "ALLOW_AUTOMATICALLY" || !decision.decisionId || !isSemanticCommand(input.command)) return null;
+  if (["create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"].includes(input.command)) {
+    return await supabaseRpc<Record<string, unknown>>(env, "agent_execute_article_command", {
+      decision_id_value: decision.decisionId, agent_identity: input.agentIdentity,
+      command_value: input.command, target_id_value: input.targetId, payload_value: input.payload,
+    });
+  }
   return await supabaseRpc<Record<string, unknown>>(env, "agent_execute_command", {
     decision_id_value: decision.decisionId, agent_identity: input.agentIdentity,
     command_value: input.command, target_id_value: input.targetId, payload_value: input.payload,
@@ -1391,10 +1459,12 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
     { name: "get_donation_status", description: "Get donor-safe current donation status, shipment last four, devices, charity, and status history without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_donation_history", description: "Get the donor-visible status history for one donation without donor contact details.", inputSchema: { type: "object", required: ["publicId"], properties: { publicId: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_campaign", description: "Get the currently published public campaign content by canonical slug.", inputSchema: { type: "object", required: ["slug"], properties: { slug: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "list_articles", description: "List published articles without exposing drafts or internal workflow fields.", inputSchema: { type: "object", additionalProperties: false, properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+    { name: "get_article", description: "Get one published article by canonical slug.", inputSchema: { type: "object", required: ["slug"], properties: { slug: { type: "string" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_campaign_metrics", description: "Get aggregate campaign donation and event metrics without donor PII.", inputSchema: { type: "object", required: ["campaignId"], properties: { campaignId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "get_partner_context", description: "Get one partner organization's campaigns, verified charities, and aggregate metrics without donor PII.", inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string", format: "uuid" } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     { name: "evaluate_semantic_command", description: "Evaluate and, when policy allows, execute a bounded Donate by Mail command. This does not provide arbitrary database access.", inputSchema: { type: "object", additionalProperties: false, required: ["command", "targetType", "risk", "idempotencyKey"], properties: {
-      command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note"] }, targetType: { type: "string" }, targetId: { type: "string", format: "uuid" }, risk: { type: "string", enum: RISK_LEVELS }, facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
+      command: { type: "string", enum: ["send_message","update_campaign_content","publish_campaign_revision","change_donation_status","create_partner_lead","create_internal_note","create_article_draft","update_article_content","schedule_article_publication","publish_article"] }, targetType: { type: "string" }, targetId: { type: "string", format: "uuid" }, risk: { type: "string", enum: RISK_LEVELS }, facts: { type: "object" }, payload: { type: "object" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
     } }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
   ] } });
   if (rpc.method === "tools/call") {
@@ -1413,6 +1483,15 @@ async function handleMcp(request: Request, env: WorkerEnv): Promise<Response> {
         if (!slug) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "slug is required" } });
         const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_public_campaign", { campaign_slug: slug });
         return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Campaign not found" } });
+      }
+      if (name === "list_articles") {
+        return mcpToolResult(id, await supabaseRpc(env, "get_published_articles", {}));
+      }
+      if (name === "get_article") {
+        const slug = stringValue(args.slug);
+        if (!slug) return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "slug is required" } });
+        const data = await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: slug });
+        return data ? mcpToolResult(id, data) : json({ jsonrpc: "2.0", id, error: { code: -32004, message: "Article not found" } });
       }
       if (name === "get_campaign_metrics" || name === "get_partner_context") {
         const resourceId = stringValue(name === "get_campaign_metrics" ? args.campaignId : args.organizationId);
@@ -1460,8 +1539,123 @@ export async function processOutbox(env: WorkerEnv): Promise<void> {
   }
 }
 
+export async function processScheduledArticles(env: WorkerEnv): Promise<void> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return;
+  await supabaseRpc(env, "publish_due_articles", {});
+}
+
+const PUBLIC_SITEMAP_PATHS = [
+  "/",
+  "/articles",
+  "/donate-phone.html",
+  "/how-it-works.html",
+  "/prepare-phone.html",
+  "/receipts.html",
+  "/data-security.html",
+  "/for-nonprofits.html",
+  "/about.html",
+  "/team.html",
+  "/get-involved.html",
+  "/phone-drives.html",
+  "/resources.html",
+  "/transparency.html",
+  "/contact.html",
+  "/privacy.html",
+  "/terms.html",
+  "/accessibility.html",
+] as const;
+
+const NON_INDEXABLE_PATHS = new Set([
+  "/login",
+  "/account",
+  "/settings",
+  "/staff",
+  "/partner",
+  "/track",
+]);
+
+function normalizedPath(pathname: string): string {
+  const value = pathname.replace(/\/+$/, "");
+  return value || "/";
+}
+
+export function isKnownHtmlPath(pathname: string): boolean {
+  const path = normalizedPath(pathname);
+  if (path === "/index.html" || path === "/donate-phone" || path === "/donate-phone.html"
+    || path === "/articles" || path === "/articles.html") return true;
+  if ((PUBLIC_SITEMAP_PATHS as readonly string[]).some((publicPath) =>
+    publicPath === path || (publicPath.endsWith(".html") && publicPath.slice(0, -5) === path))) return true;
+  return /^\/articles\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path)
+    || /^\/c\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path)
+    || NON_INDEXABLE_PATHS.has(path);
+}
+
+export function escapeXml(value: string): string {
+  return value.replace(/[<>&'\"]/g, (character) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&apos;",
+    "\"": "&quot;",
+  })[character] ?? character);
+}
+
+export function buildRobotsTxt(environment: WorkerEnv["DEPLOYMENT_ENVIRONMENT"]): string {
+  if (environment === "beta") return "User-agent: *\nDisallow: /\n";
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "",
+    "Sitemap: https://donatebymail.org/sitemap.xml",
+    "",
+  ].join("\n");
+}
+
+export async function buildSitemapXml(env: WorkerEnv): Promise<string> {
+  const urls: Array<{ path: string; lastmod?: string }> = PUBLIC_SITEMAP_PATHS.map((path) => ({ path }));
+  if (env.DEPLOYMENT_ENVIRONMENT !== "beta" && env.SUPABASE_URL && env.SUPABASE_SECRET_KEY) {
+    try {
+      const articles = await supabaseRpc<Array<{ slug?: unknown; publishedAt?: unknown; published_at?: unknown }>>(env, "get_published_articles", {});
+      for (const article of articles) {
+        const slug = typeof article.slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(article.slug)
+          ? article.slug
+          : null;
+        if (!slug) continue;
+        const rawDate = article.publishedAt ?? article.published_at;
+        const publishedAt = typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(rawDate)
+          ? rawDate.slice(0, 10)
+          : undefined;
+        urls.push({ path: `/articles/${slug}`, lastmod: publishedAt });
+      }
+    } catch {
+      // The static sitemap remains valid if the optional article service is unavailable.
+    }
+  }
+  const body = urls.map(({ path, lastmod }) => [
+    "  <url>",
+    `    <loc>${escapeXml(`https://donatebymail.org${path}`)}</loc>`,
+    lastmod ? `    <lastmod>${escapeXml(lastmod)}</lastmod>` : "",
+    "  </url>",
+  ].filter(Boolean).join("\n")).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
+}
+
 async function routeRequest(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/ads.txt") {
+      return new Response("", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    }
+    if (request.method === "GET" && url.pathname === "/robots.txt") {
+      return new Response(buildRobotsTxt(env.DEPLOYMENT_ENVIRONMENT), {
+        headers: { "cache-control": "public, max-age=3600", "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    if (request.method === "GET" && url.pathname === "/sitemap.xml") {
+      if (env.DEPLOYMENT_ENVIRONMENT === "beta") return new Response("Not found", { status: 404, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } });
+      return new Response(await buildSitemapXml(env), {
+        headers: { "cache-control": "public, max-age=3600", "content-type": "application/xml; charset=utf-8" },
+      });
+    }
     if (request.method === "POST" && url.pathname === "/api/donations") {
       return handleDonationSubmission(request, env);
     }
@@ -1502,6 +1696,18 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp") {
       try { return await handleMcp(request, env); }
       catch { return json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null }, 500); }
+    }
+    if (request.method === "GET" && url.pathname === "/api/articles") {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return json({ ok: true, articles: [] });
+      const articles = await supabaseRpc<unknown[]>(env, "get_published_articles", {});
+      return json({ ok: true, articles });
+    }
+    const publicArticle = url.pathname.match(/^\/api\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+    if (request.method === "GET" && publicArticle) {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return json({ ok: false, message: "Article not found." }, 404);
+      const article = await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: publicArticle[1] });
+      if (!article) return json({ ok: false, message: "Article not found." }, 404);
+      return json({ ok: true, article });
     }
     const publicCampaign = url.pathname.match(/^\/api\/campaigns\/([a-z0-9-]+)$/);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && request.method === "GET" && publicCampaign) {
@@ -1562,6 +1768,14 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
       }
     }
     const response = await env.ASSETS.fetch(request);
+    if (request.method === "GET" && response.status === 200
+      && response.headers.get("content-type")?.toLowerCase().includes("text/html")
+      && !isKnownHtmlPath(url.pathname)) {
+      return new Response("Not found", {
+        status: 404,
+        headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8", "x-robots-tag": "noindex" },
+      });
+    }
     if (env.DEPLOYMENT_ENVIRONMENT !== "beta") return response;
 
     const headers = new Headers(response.headers);
@@ -1573,16 +1787,20 @@ async function routeRequest(request: Request, env: WorkerEnv): Promise<Response>
     });
 }
 
-function hardened(response: Response, request: Request, env: WorkerEnv): Response {
+export function hardened(response: Response, request: Request, env: WorkerEnv): Response {
   const headers = new Headers(response.headers);
-  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to; img-src 'self' data: https://images.pexels.com https://5e27aa4c670fcbb06b.v2.appdeploy.ai https://www.pledge.to https://res.cloudinary.com https://pledgeling-res.cloudinary.com; style-src 'self' 'unsafe-inline'; font-src 'self'; upgrade-insecure-requests");
+  headers.set("content-security-policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://www.pledge.to https://staging.pledge.to https://www.googletagmanager.com; script-src-attr 'none'; frame-src https://www.pledge.to https://staging.pledge.to; connect-src 'self' https://api.pledge.to https://www.google-analytics.com https://region1.google-analytics.com; img-src 'self' data: https://images.pexels.com https://www.pledge.to https://res.cloudinary.com https://pledgeling-res.cloudinary.com https://www.google-analytics.com; style-src 'self'; style-src-attr 'none'; font-src 'self'; upgrade-insecure-requests");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
   headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
   headers.set("x-content-type-options", "nosniff");
   headers.set("x-frame-options", "DENY");
-  if (env.DEPLOYMENT_ENVIRONMENT === "beta") headers.set("x-robots-tag", "noindex, nofollow, noarchive");
-  const path = new URL(request.url).pathname;
-  if (path.startsWith("/api/") || ["/staff", "/account", "/partner"].includes(path.replace(/\/$/, "")))
+  headers.set("x-permitted-cross-domain-policies", "none");
+  headers.set("cross-origin-resource-policy", "same-origin");
+  if (env.DEPLOYMENT_ENVIRONMENT === "production") headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
+  const path = normalizedPath(new URL(request.url).pathname);
+  if (env.DEPLOYMENT_ENVIRONMENT === "beta" || NON_INDEXABLE_PATHS.has(path) || path.startsWith("/api/"))
+    headers.set("x-robots-tag", "noindex, nofollow, noarchive");
+  if (path.startsWith("/api/") || NON_INDEXABLE_PATHS.has(path))
     headers.set("cache-control", "no-store");
   const refreshed = refreshedCookies.get(request);
   if (refreshed) headers.append("set-cookie", refreshed);
@@ -1594,6 +1812,7 @@ export default {
     return hardened(await routeRequest(request, env), request, env);
   },
   async scheduled(_controller: ScheduledController, env: WorkerEnv): Promise<void> {
+    await processScheduledArticles(env);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta") await processOutbox(env);
   },
 } satisfies ExportedHandler<WorkerEnv>;

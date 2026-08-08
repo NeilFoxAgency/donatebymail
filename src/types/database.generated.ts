@@ -21,6 +21,153 @@ export type Database = {
         Args: { actor_user_id: string; verified_email: string }
         Returns: number
       }
+      agent_authorize_support_message: {
+        Args: {
+          agent_identity: string
+          body_summary_value: string
+          body_value: string
+          candidate_campaign_id?: string
+          candidate_donation_id?: string
+          candidate_organization_id?: string
+          complaint_or_threat?: boolean
+          correlation_value?: string
+          idempotency_value: string
+          message_category: string
+          recipient_email: string
+          requests_access_change?: boolean
+          requests_financial_action?: boolean
+          requests_legal_or_tax_advice?: boolean
+          security_or_privacy_incident?: boolean
+          subject_value: string
+        }
+        Returns: Json
+      }
+      agent_create_partner_lead: {
+        Args: {
+          agent_identity: string
+          audience_summary_value?: string
+          correlation_value?: string
+          external_thread_value?: string
+          goal_summary_value?: string
+          idempotency_value: string
+          organization_name_value: string
+          request_summary_value: string
+          requester_email: string
+          timing_summary_value?: string
+          website_url_value?: string
+        }
+        Returns: Json
+      }
+      agent_execute_article_command: {
+        Args: {
+          agent_identity: string
+          command_value: string
+          decision_id_value: string
+          payload_value: Json
+          target_id_value: string
+        }
+        Returns: Json
+      }
+      agent_execute_command: {
+        Args: {
+          agent_identity: string
+          command_value: string
+          decision_id_value: string
+          payload_value: Json
+          target_id_value: string
+        }
+        Returns: Json
+      }
+      agent_find_donations: {
+        Args: {
+          agent_identity: string
+          public_id_hint?: string
+          requester_email: string
+          result_limit?: number
+        }
+        Returns: Json
+      }
+      agent_get_campaign_metrics: {
+        Args: { candidate_campaign_id: string }
+        Returns: Json
+      }
+      agent_get_donation_context: {
+        Args: { candidate_public_id: string }
+        Returns: Json
+      }
+      agent_get_donation_support_snapshot: {
+        Args: {
+          agent_identity: string
+          candidate_donation_id: string
+          requester_email: string
+        }
+        Returns: Json
+      }
+      agent_get_operations_overview: {
+        Args: { agent_identity: string }
+        Returns: Json
+      }
+      agent_get_partner_context: {
+        Args: { candidate_organization_id: string }
+        Returns: Json
+      }
+      agent_get_partner_support_snapshot: {
+        Args: { agent_identity: string; requester_email: string }
+        Returns: Json
+      }
+      agent_record_inbound_message: {
+        Args: {
+          agent_identity: string
+          body_storage_value?: string
+          body_summary_value: string
+          candidate_campaign_id?: string
+          candidate_donation_id?: string
+          candidate_organization_id?: string
+          external_message_value: string
+          external_thread_value: string
+          occurred_at_value?: string
+          provider_value: string
+          recipient_emails: Json
+          sender_email: string
+          subject_value: string
+        }
+        Returns: Json
+      }
+      agent_record_message_failure: {
+        Args: {
+          agent_identity: string
+          authorization_value: string
+          failure_code: string
+        }
+        Returns: Json
+      }
+      agent_record_outbound_message: {
+        Args: {
+          agent_identity: string
+          authorization_value: string
+          body_value: string
+          content_hash_value: string
+          external_message_value: string
+          external_thread_value: string
+          provider_value: string
+          sender_identity_value: string
+          sent_at_value?: string
+          subject_value: string
+        }
+        Returns: Json
+      }
+      agent_set_communication_thread_status: {
+        Args: {
+          agent_identity: string
+          candidate_thread_id: string
+          status_value: string
+        }
+        Returns: Json
+      }
+      agent_support_capabilities: {
+        Args: { agent_identity: string }
+        Returns: Json
+      }
       claim_donation: {
         Args: {
           actor_user_id: string
@@ -154,6 +301,8 @@ export type Database = {
         Args: { candidate_asset_id: string }
         Returns: Json
       }
+      get_published_article: { Args: { candidate_slug: string }; Returns: Json }
+      get_published_articles: { Args: never; Returns: Json }
       is_active_staff_email: {
         Args: { candidate_email: string }
         Returns: boolean
@@ -237,6 +386,7 @@ export type Database = {
         Returns: undefined
       }
       partner_overview: { Args: { actor_user_id: string }; Returns: Json }
+      publish_due_articles: { Args: never; Returns: Json }
       resolve_campaign_alias: {
         Args: { candidate_slug: string }
         Returns: Json
@@ -789,6 +939,105 @@ export type Database = {
           },
         ]
       }
+      agent_message_authorizations: {
+        Row: {
+          action_decision_id: string
+          agent_action_id: string
+          agent_ref: string
+          body_summary: string
+          campaign_id: string | null
+          consumed_at: string | null
+          content_hash: string
+          created_at: string
+          donation_id: string | null
+          expires_at: string
+          id: string
+          identity_verified: boolean
+          message_category: string
+          organization_id: string | null
+          outcome: Database["app_private"]["Enums"]["action_policy_outcome"]
+          recipient_email_search: string
+          risk: Database["app_private"]["Enums"]["risk_level"]
+          subject: string
+        }
+        Insert: {
+          action_decision_id: string
+          agent_action_id: string
+          agent_ref: string
+          body_summary: string
+          campaign_id?: string | null
+          consumed_at?: string | null
+          content_hash: string
+          created_at?: string
+          donation_id?: string | null
+          expires_at: string
+          id?: string
+          identity_verified?: boolean
+          message_category: string
+          organization_id?: string | null
+          outcome: Database["app_private"]["Enums"]["action_policy_outcome"]
+          recipient_email_search: string
+          risk: Database["app_private"]["Enums"]["risk_level"]
+          subject: string
+        }
+        Update: {
+          action_decision_id?: string
+          agent_action_id?: string
+          agent_ref?: string
+          body_summary?: string
+          campaign_id?: string | null
+          consumed_at?: string | null
+          content_hash?: string
+          created_at?: string
+          donation_id?: string | null
+          expires_at?: string
+          id?: string
+          identity_verified?: boolean
+          message_category?: string
+          organization_id?: string | null
+          outcome?: Database["app_private"]["Enums"]["action_policy_outcome"]
+          recipient_email_search?: string
+          risk?: Database["app_private"]["Enums"]["risk_level"]
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_message_authorizations_action_decision_id_fkey"
+            columns: ["action_decision_id"]
+            isOneToOne: true
+            referencedRelation: "action_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_message_authorizations_agent_action_id_fkey"
+            columns: ["agent_action_id"]
+            isOneToOne: true
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_message_authorizations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_message_authorizations_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_message_authorizations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       allocation_state_events: {
         Row: {
           actor_user_id: string
@@ -851,6 +1100,132 @@ export type Database = {
           window_started_at?: string
         }
         Relationships: []
+      }
+      article_revisions: {
+        Row: {
+          article_id: string
+          author_name: string
+          content_blocks: Json
+          content_hash: string
+          created_at: string
+          created_by: string | null
+          created_by_agent: string | null
+          excerpt: string
+          id: string
+          seo_description: string | null
+          seo_title: string | null
+          title: string
+          version: number
+        }
+        Insert: {
+          article_id: string
+          author_name?: string
+          content_blocks: Json
+          content_hash: string
+          created_at?: string
+          created_by?: string | null
+          created_by_agent?: string | null
+          excerpt: string
+          id?: string
+          seo_description?: string | null
+          seo_title?: string | null
+          title: string
+          version: number
+        }
+        Update: {
+          article_id?: string
+          author_name?: string
+          content_blocks?: Json
+          content_hash?: string
+          created_at?: string
+          created_by?: string | null
+          created_by_agent?: string | null
+          excerpt?: string
+          id?: string
+          seo_description?: string | null
+          seo_title?: string | null
+          title?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "article_revisions_article_id_fkey"
+            columns: ["article_id"]
+            isOneToOne: false
+            referencedRelation: "articles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      articles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          created_by_agent: string | null
+          current_revision_id: string | null
+          id: string
+          published_revision_id: string | null
+          scheduled_publish_at: string | null
+          scheduled_revision_id: string | null
+          slug: string
+          status: Database["app_private"]["Enums"]["article_status"]
+          updated_at: string
+          updated_by: string | null
+          updated_by_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          created_by_agent?: string | null
+          current_revision_id?: string | null
+          id?: string
+          published_revision_id?: string | null
+          scheduled_publish_at?: string | null
+          scheduled_revision_id?: string | null
+          slug: string
+          status?: Database["app_private"]["Enums"]["article_status"]
+          updated_at?: string
+          updated_by?: string | null
+          updated_by_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          created_by_agent?: string | null
+          current_revision_id?: string | null
+          id?: string
+          published_revision_id?: string | null
+          scheduled_publish_at?: string | null
+          scheduled_revision_id?: string | null
+          slug?: string
+          status?: Database["app_private"]["Enums"]["article_status"]
+          updated_at?: string
+          updated_by?: string | null
+          updated_by_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "articles_current_revision_fk"
+            columns: ["current_revision_id"]
+            isOneToOne: false
+            referencedRelation: "article_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "articles_published_revision_fk"
+            columns: ["published_revision_id"]
+            isOneToOne: false
+            referencedRelation: "article_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "articles_scheduled_revision_fk"
+            columns: ["scheduled_revision_id"]
+            isOneToOne: false
+            referencedRelation: "article_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       audit_events: {
         Row: {
@@ -1071,6 +1446,7 @@ export type Database = {
           published_at: string | null
           published_by: string | null
           requested_by: string | null
+          requested_by_agent: string | null
           status: Database["app_private"]["Enums"]["campaign_revision_status"]
           story: string
           summary: string
@@ -1093,6 +1469,7 @@ export type Database = {
           published_at?: string | null
           published_by?: string | null
           requested_by?: string | null
+          requested_by_agent?: string | null
           status?: Database["app_private"]["Enums"]["campaign_revision_status"]
           story: string
           summary: string
@@ -1115,6 +1492,7 @@ export type Database = {
           published_at?: string | null
           published_by?: string | null
           requested_by?: string | null
+          requested_by_agent?: string | null
           status?: Database["app_private"]["Enums"]["campaign_revision_status"]
           story?: string
           summary?: string
@@ -1353,32 +1731,41 @@ export type Database = {
       communication_threads: {
         Row: {
           campaign_id: string | null
+          contact_email_search: string | null
           created_at: string
+          donation_id: string | null
           external_provider: string
           external_thread_ref: string | null
           id: string
           last_message_at: string | null
           organization_id: string | null
+          status: string
           subject: string | null
         }
         Insert: {
           campaign_id?: string | null
+          contact_email_search?: string | null
           created_at?: string
+          donation_id?: string | null
           external_provider: string
           external_thread_ref?: string | null
           id?: string
           last_message_at?: string | null
           organization_id?: string | null
+          status?: string
           subject?: string | null
         }
         Update: {
           campaign_id?: string | null
+          contact_email_search?: string | null
           created_at?: string
+          donation_id?: string | null
           external_provider?: string
           external_thread_ref?: string | null
           id?: string
           last_message_at?: string | null
           organization_id?: string | null
+          status?: string
           subject?: string | null
         }
         Relationships: [
@@ -1387,6 +1774,13 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_threads_donation_id_fkey"
+            columns: ["donation_id"]
+            isOneToOne: false
+            referencedRelation: "donations"
             referencedColumns: ["id"]
           },
           {
@@ -2001,21 +2395,24 @@ export type Database = {
         Row: {
           body: string
           created_at: string
-          created_by: string
+          created_by: string | null
+          created_by_agent: string | null
           donation_id: string
           id: string
         }
         Insert: {
           body: string
           created_at?: string
-          created_by: string
+          created_by?: string | null
+          created_by_agent?: string | null
           donation_id: string
           id?: string
         }
         Update: {
           body?: string
           created_at?: string
-          created_by?: string
+          created_by?: string | null
+          created_by_agent?: string | null
           donation_id?: string
           id?: string
         }
@@ -2745,6 +3142,75 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "partner_invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partner_leads: {
+        Row: {
+          agent_action_id: string | null
+          audience_summary: string | null
+          created_at: string
+          created_by_agent_ref: string
+          external_thread_ref: string | null
+          goal_summary: string | null
+          id: string
+          organization_id: string | null
+          organization_name: string
+          request_summary: string
+          requester_email_search: string
+          status: string
+          timing_summary: string | null
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          agent_action_id?: string | null
+          audience_summary?: string | null
+          created_at?: string
+          created_by_agent_ref: string
+          external_thread_ref?: string | null
+          goal_summary?: string | null
+          id?: string
+          organization_id?: string | null
+          organization_name: string
+          request_summary: string
+          requester_email_search: string
+          status?: string
+          timing_summary?: string | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          agent_action_id?: string | null
+          audience_summary?: string | null
+          created_at?: string
+          created_by_agent_ref?: string
+          external_thread_ref?: string | null
+          goal_summary?: string | null
+          id?: string
+          organization_id?: string | null
+          organization_name?: string
+          request_summary?: string
+          requester_email_search?: string
+          status?: string
+          timing_summary?: string | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_leads_agent_action_id_fkey"
+            columns: ["agent_action_id"]
+            isOneToOne: true
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "partner_leads_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -3503,12 +3969,27 @@ export type Database = {
       }
     }
     Functions: {
+      article_content_hash: {
+        Args: {
+          author_name_value: string
+          blocks_value: Json
+          excerpt_value: string
+          seo_description_value: string
+          seo_title_value: string
+          title_value: string
+        }
+        Returns: string
+      }
       assert_active_admin: {
         Args: { actor_user_id: string }
         Returns: undefined
       }
       assert_active_staff: {
         Args: { actor_user_id: string }
+        Returns: undefined
+      }
+      assert_agent_identity: {
+        Args: { agent_identity: string }
         Returns: undefined
       }
       assert_org_admin: {
@@ -3534,6 +4015,18 @@ export type Database = {
         Args: { created_time: string }
         Returns: string
       }
+      support_content_hash: {
+        Args: {
+          body_value: string
+          campaign_value: string
+          donation_value: string
+          message_category: string
+          organization_value: string
+          recipient_email: string
+          subject_value: string
+        }
+        Returns: string
+      }
       valid_donation_transition: {
         Args: {
           new_status: Database["app_private"]["Enums"]["donation_status"]
@@ -3541,6 +4034,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      validate_article_blocks: { Args: { blocks: Json }; Returns: boolean }
       validate_campaign_blocks: {
         Args: { blocks_value: Json }
         Returns: boolean
@@ -3575,6 +4069,7 @@ export type Database = {
         | "disbursed"
         | "reversed"
       approval_outcome: "approved" | "rejected" | "expired" | "cancelled"
+      article_status: "draft" | "scheduled" | "published" | "archived"
       campaign_alias_behavior: "redirect" | "render"
       campaign_alias_status: "active" | "retired"
       campaign_revision_status:
@@ -3816,6 +4311,7 @@ export const Constants = {
         "reversed",
       ],
       approval_outcome: ["approved", "rejected", "expired", "cancelled"],
+      article_status: ["draft", "scheduled", "published", "archived"],
       campaign_alias_behavior: ["redirect", "render"],
       campaign_alias_status: ["active", "retired"],
       campaign_revision_status: [

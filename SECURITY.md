@@ -53,6 +53,8 @@ audit history, service credentials, and outbound communication authority.
   data only. Cloudflare Access protects the exact beta hostname with named
   human and service-token policies; server-side rate limits remain defense in
   depth. The Access boundary does not authorize real donor testing.
+  The beta Worker does not expose a public `workers.dev` route, so the custom
+  domain Access boundary cannot be bypassed through the development hostname.
   Production cutover must add server-verified Turnstile to anonymous write
   endpoints; a browser token alone is not accepted as proof.
 

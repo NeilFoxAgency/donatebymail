@@ -1,0 +1,14 @@
+title = "Donate by Mail Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Cloudflare Access audience is public JWT metadata, not a credential"
+condition = "AND"
+regexTarget = "match"
+regexes = ['''24a4b765443b92f55680c9983cfdec85bf3dc9b03e572671141053dcfba9b959''']
+paths = [
+  '''(^|/)wrangler\.jsonc$''',
+  '''(^|/)worker-configuration\.d\.ts$''',
+]

@@ -104,6 +104,13 @@ in environment-specific secret stores. Deployment commands are explicit and
 guarded, CI actions are commit-pinned, lockfiles are committed, and secret and
 dependency scans run in CI.
 
+On August 5, 2026, GitHub reported five Dependabot alerts for Wrangler's
+transitive `undici` package (one high and four moderate). The beta branch pins
+the first patched `undici` release, 7.29.0, through the npm override mechanism;
+`npm audit --omit=optional --audit-level=moderate` now reports zero findings.
+The repository default branch will continue to show the historical alerts
+until this reviewed branch is merged; no production deployment is implied.
+
 ### Database operator and backup disclosure
 
 RLS does not protect against a database administrator, service-role compromise,
@@ -175,9 +182,33 @@ partner HTML, scripts, CSS, embeds, or arbitrary remote URLs.
 ### Browser hardening and administrative email
 
 The Worker deploys a CSP with exact production and staging Pledge origins,
-denies framing and object embedding, restricts forms and connections, and adds
-`Referrer-Policy`, `Permissions-Policy`, `X-Content-Type-Options`, and
-`X-Frame-Options`. API and authenticated surfaces use `Cache-Control: no-store`.
+Google Analytics/Tag Manager only when configured, denies framing and object
+embedding, blocks inline script/style attributes, restricts forms and
+connections, and adds `Referrer-Policy`, `Permissions-Policy`,
+`X-Content-Type-Options`, `X-Frame-Options`,
+`X-Permitted-Cross-Domain-Policies`, and `Cross-Origin-Resource-Policy`.
+Production also sends one-year HSTS with subdomains; preload is intentionally
+not claimed until every production subdomain has been verified. API and
+authenticated surfaces use `Cache-Control: no-store`.
+
+The static SPA fallback cannot be used for operational metadata: the Worker
+returns a deliberate 404 for `/ads.txt`, serves a production sitemap with
+published article URLs when available, and returns a beta `Disallow: /`
+robots policy. Cloudflare-managed content-signal lines may still be prepended
+to `robots.txt`; the beta hostname remains protected by Access and the Worker
+also sends `X-Robots-Tag: noindex` for beta responses.
+
+The editorial MCP origin does not trust the presence of a Cloudflare Access
+header. For both the private and managed-OAuth beta hostnames it fetches the
+Access JWKS, verifies the RS256 signature and key ID, then checks the expected
+issuer, application audience, `type=app`, and bounded time claims. JWKS keys are
+cached briefly and refreshed on an unknown key ID; any malformed, expired,
+wrong-audience, or unverifiable token fails closed. The separate connector
+upstream remains protected by its own constant-time beta bearer secret.
+
+Public support-page images use `Referrer-Policy` at the element level and the
+legacy AppDeploy-hosted mascot URL has been replaced with the first-party asset
+so the preview host is not leaked through production HTML.
 Routine beta administrator notices contain only the public donation ID,
 charity, device count, status, and authenticated staff link. Donor email and
 street address stay in the private workspace rather than routine email.
@@ -187,6 +218,8 @@ street address stay in the private workspace rather than routine email.
 The beta is a synthetic-data-only test environment, not a public beta approved
 for real donor data. Cloudflare Access is the required perimeter, with named
 human identities and a separate service-token policy for automation. The
+beta deployment disables its public `workers.dev` hostname so the Access
+boundary applies to every beta request path. The
 unauthenticated challenge, authorized one-time-PIN path, service-token path,
 logout, and production non-interference were verified on July 29, 2026.
 The passwordless PKCE callback is intentionally a separate, path-scoped
@@ -244,3 +277,15 @@ records who asserted physical facts, and preserves operational evidence.
 
 Repository: https://github.com/NeilFoxAgency/donatebymail.git
 Version: working-tree-4707d2c4ea94795795c2e9ce581fa83289e5d37cf5fa03b973d62ca6b31a6611
+
+## Review references
+
+- [OWASP Top 10:2025](https://owasp.org/Top10/)
+- [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [Supabase API security](https://supabase.com/docs/guides/api/securing-your-api)
+- [Supabase production checklist](https://supabase.com/docs/guides/deployment/going-into-prod)
+- [Cloudflare Workers security headers](https://developers.cloudflare.com/workers/examples/security-headers/)
+- [Cloudflare Workers security model](https://developers.cloudflare.com/workers/reference/security-model/)
+- [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)

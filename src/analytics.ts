@@ -5,7 +5,12 @@ declare global {
   }
 }
 
-const measurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined;
+const configuredMeasurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined;
+// Only accept the GA4 measurement-ID shape. This keeps deployment configuration
+// from becoming an arbitrary script URL or selector value.
+const measurementId = configuredMeasurementId && /^G-[A-Z0-9]{4,}$/i.test(configuredMeasurementId)
+  ? configuredMeasurementId
+  : undefined;
 const consentKey = 'dbm-analytics-consent';
 
 export const analyticsEnabled = Boolean(measurementId);
@@ -49,8 +54,8 @@ export function trackPage(path: string, title: string) {
 }
 
 export function trackEvent(name: string, parameters: Record<string, string | number | boolean> = {}) {
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push({ event: name, ...parameters });
   if (!measurementId || getAnalyticsConsent() !== 'granted') return;
+  // gtag queues the event in the same dataLayer used during initialization.
+  // Do not also push a second object: that causes duplicate GA4 conversions.
   window.gtag?.('event', name, parameters);
 }

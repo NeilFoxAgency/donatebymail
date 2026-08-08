@@ -7,6 +7,10 @@ type AgentWorkerEnv = Env & {
   SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
   AGENT_API_KEY?: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUDIENCE?: string;
+  /** Dedicated beta-only credential used by the Cloudflare MCP Portal upstream. */
+  MCP_ARTICLE_BEARER_TOKEN?: string;
 };
 
 type JsonRpcRequest = {
@@ -14,6 +18,7 @@ type JsonRpcRequest = {
   id?: string | number | null;
   method?: string;
   params?: {
+    protocolVersion?: string;
     name?: string;
     arguments?: Record<string, unknown>;
   };
@@ -21,8 +26,12 @@ type JsonRpcRequest = {
 
 type McpTool = {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  securitySchemes?: Array<Record<string, unknown>>;
+  _meta?: { securitySchemes?: Array<Record<string, unknown>> };
   annotations: {
     readOnlyHint: boolean;
     destructiveHint: boolean;
@@ -32,11 +41,47 @@ type McpTool = {
 };
 
 const AGENT_IDENTITY = "donate-by-mail-operations-agent-v1";
+// ChatGPT's current custom-app scanner supports the June 2025 MCP
+// Streamable HTTP protocol. Keep this explicit rather than advertising a
+// newer draft version that clients may treat as unsupported.
+const MCP_PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = new Set(["2025-11-25", "2025-06-18", "2025-03-26"]);
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
+  "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
 };
+
+const ARTICLE_OAUTH_SECURITY = [{ type: "oauth2", scopes: [] }];
+
+type AccessJwk = {
+  kid?: string;
+  kty?: string;
+  alg?: string;
+  use?: string;
+  n?: string;
+  e?: string;
+};
+
+type AccessJwksCache = {
+  domain: string;
+  expiresAt: number;
+  keys: Map<string, CryptoKey>;
+};
+
+type AccessClaims = {
+  aud?: string | string[];
+  exp?: number;
+  iat?: number;
+  iss?: string;
+  nbf?: number;
+  type?: string;
+};
+
+let accessJwksCache: AccessJwksCache | null = null;
+const ACCESS_JWKS_TTL_MS = 5 * 60 * 1000;
+const ACCESS_CLOCK_SKEW_SECONDS = 60;
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -51,6 +96,138 @@ const WRITE_ANNOTATIONS = {
   idempotentHint: true,
   openWorldHint: false,
 };
+
+// Keep article content as a deliberately small, JSON-Schema-described union.
+// Besides making validation explicit at the command boundary, the concrete
+// `items` schema is important for MCP clients that inspect tool schemas before
+// registering write-capable tools (an array without `items` is too ambiguous
+// for some client scanners).
+const ARTICLE_BLOCK_SCHEMA = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "text"],
+      properties: {
+        type: { type: "string", enum: ["paragraph", "quote"] },
+        text: { type: "string", minLength: 1, maxLength: 5000 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "level", "text"],
+      properties: {
+        type: { type: "string", enum: ["heading"] },
+        level: { type: "integer", enum: [2, 3, 4] },
+        text: { type: "string", minLength: 1, maxLength: 5000 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "ordered", "items"],
+      properties: {
+        type: { type: "string", enum: ["list"] },
+        ordered: { type: "boolean" },
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: { type: "string", minLength: 1, maxLength: 1000 },
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "label", "href"],
+      properties: {
+        type: { type: "string", enum: ["link"] },
+        label: { type: "string", minLength: 1, maxLength: 500 },
+        href: { type: "string", maxLength: 1000 },
+      },
+    },
+  ],
+} as const;
+
+const ARTICLE_LIST_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    articles: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", format: "uuid" },
+          slug: { type: "string" },
+          title: { type: "string" },
+          excerpt: { type: "string" },
+          authorName: { type: "string" },
+          publishedAt: { type: "string", format: "date-time" },
+          seoTitle: { type: "string" },
+          seoDescription: { type: "string" },
+        },
+      },
+    },
+  },
+  required: ["articles"],
+} as const;
+const ARTICLE_DETAIL_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    article: {
+      oneOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: { type: "string", format: "uuid" },
+            slug: { type: "string" },
+            title: { type: "string" },
+            excerpt: { type: "string" },
+            contentBlocks: { type: "array", items: ARTICLE_BLOCK_SCHEMA },
+            authorName: { type: "string" },
+            publishedAt: { type: "string", format: "date-time" },
+            seoTitle: { type: "string" },
+            seoDescription: { type: "string" },
+            contentHash: { type: "string" },
+            revisionId: { type: "string", format: "uuid" },
+            version: { type: "integer" },
+          },
+        },
+      ],
+    },
+  },
+  required: ["article"],
+} as const;
+const ARTICLE_COMMAND_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decision: { type: "object", additionalProperties: true },
+    execution: {
+      oneOf: [
+        { type: "null" },
+        { type: "object", additionalProperties: true },
+      ],
+    },
+  },
+  required: ["decision", "execution"],
+} as const;
+
+const ARTICLE_MCP_TOOL_NAMES = new Set([
+  "list_articles",
+  "get_article",
+  "create_article_draft",
+  "update_article_content",
+  "schedule_article_publication",
+  "publish_article",
+]);
 
 const SUPPORT_CATEGORIES = [
   "general_faq",
@@ -241,6 +418,108 @@ const MCP_TOOLS: McpTool[] = [
     annotations: WRITE_ANNOTATIONS,
   },
   {
+    name: "list_articles",
+    title: "List published articles",
+    description: "List published Donate by Mail articles. Drafts, schedules, and internal workflow fields are never exposed.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    outputSchema: ARTICLE_LIST_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: READ_ONLY_ANNOTATIONS,
+  },
+  {
+    name: "get_article",
+    title: "Get a published article",
+    description: "Read one published article by its safe canonical slug, including typed content blocks and SEO metadata.",
+    inputSchema: {
+      type: "object", additionalProperties: false, required: ["slug"],
+      properties: { slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 } },
+    },
+    outputSchema: ARTICLE_DETAIL_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: READ_ONLY_ANNOTATIONS,
+  },
+  {
+    name: "create_article_draft",
+    title: "Create an article draft",
+    description: "Create an audited article draft using safe typed blocks. The draft is not public until explicitly scheduled or published.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["slug", "title", "excerpt", "contentBlocks", "idempotencyKey"],
+      properties: {
+        slug: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$", maxLength: 120 },
+        title: { type: "string", minLength: 1, maxLength: 180 },
+        excerpt: { type: "string", minLength: 1, maxLength: 500 },
+        contentBlocks: { type: "array", maxItems: 50, items: ARTICLE_BLOCK_SCHEMA },
+        seoTitle: { type: "string", maxLength: 180 },
+        seoDescription: { type: "string", maxLength: 320 },
+        authorName: { type: "string", maxLength: 120 },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "update_article_content",
+    title: "Update article content",
+    description: "Create a new immutable revision for an existing article. This changes no published page until a revision is scheduled or published.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "title", "excerpt", "contentBlocks", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, title: { type: "string", minLength: 1, maxLength: 180 },
+        excerpt: { type: "string", minLength: 1, maxLength: 500 }, contentBlocks: { type: "array", maxItems: 50, items: ARTICLE_BLOCK_SCHEMA },
+        seoTitle: { type: "string", maxLength: 180 }, seoDescription: { type: "string", maxLength: 320 },
+        authorName: { type: "string", maxLength: 120 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "schedule_article_publication",
+    title: "Schedule article publication",
+    description: "Schedule one exact article revision for future publication. The scheduler publishes only that revision after the policy-approved time.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "revisionId", "scheduledAt", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, revisionId: { type: "string", format: "uuid" },
+        scheduledAt: { type: "string", format: "date-time" }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 },
+        correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
+    name: "publish_article",
+    title: "Publish an article revision",
+    description: "Publish one exact article revision after the active policy authorizes the command. The current beta policy allows this automatically while preserving validation and audit attribution.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      required: ["articleId", "revisionId", "idempotencyKey"],
+      properties: {
+        articleId: { type: "string", format: "uuid" }, revisionId: { type: "string", format: "uuid" },
+        idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, correlationId: { type: "string", format: "uuid" },
+      },
+    },
+    outputSchema: ARTICLE_COMMAND_OUTPUT_SCHEMA,
+    securitySchemes: ARTICLE_OAUTH_SECURITY,
+    _meta: { securitySchemes: ARTICLE_OAUTH_SECURITY },
+    annotations: WRITE_ANNOTATIONS,
+  },
+  {
     name: "evaluate_semantic_command",
     description: "Evaluate a non-email bounded business command under the active policy. This records a decision but does not execute physical, financial, credential, role, or deployment actions.",
     inputSchema: {
@@ -250,7 +529,7 @@ const MCP_TOOLS: McpTool[] = [
       properties: {
         command: {
           type: "string",
-          enum: ["update_campaign_content", "publish_campaign_revision", "change_donation_status", "create_partner_lead", "create_internal_note"],
+          enum: ["update_campaign_content", "publish_campaign_revision", "change_donation_status", "create_partner_lead", "create_internal_note", "create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"],
         },
         targetType: { type: "string", minLength: 1, maxLength: 80 },
         targetId: { type: "string", format: "uuid" },
@@ -267,6 +546,19 @@ const MCP_TOOLS: McpTool[] = [
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+function protocolJson(body: unknown, protocolVersion: string, status = 200): Response {
+  const headers = new Headers(JSON_HEADERS);
+  headers.set("MCP-Protocol-Version", protocolVersion);
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+function requestProtocolVersion(request: Request): string {
+  const requested = request.headers.get("MCP-Protocol-Version");
+  return requested && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(requested)
+    ? requested
+    : MCP_PROTOCOL_VERSION;
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -288,6 +580,112 @@ async function safeSecretEqual(actual: string | null, expected?: string): Promis
     difference |= leftBytes[index] ^ rightBytes[index];
   }
   return difference === 0;
+}
+
+function base64UrlBytes(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/")
+      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const binary = atob(padded);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtJson<T>(value: string): T | null {
+  const bytes = base64UrlBytes(value);
+  if (!bytes) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function accessTeamDomain(value: string | undefined): string | null {
+  const domain = value?.trim().toLowerCase() || "";
+  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$/.test(domain)
+    ? domain
+    : null;
+}
+
+async function loadAccessKeys(
+  domain: string,
+  forceRefresh = false,
+): Promise<Map<string, CryptoKey>> {
+  if (!forceRefresh && accessJwksCache && accessJwksCache.domain === domain
+    && accessJwksCache.expiresAt > Date.now()) {
+    return accessJwksCache.keys;
+  }
+  const response = await fetch(`https://${domain}/cdn-cgi/access/certs`, {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error("access_jwks_unavailable");
+  const body = await response.json() as { keys?: AccessJwk[] };
+  if (!Array.isArray(body.keys)) throw new Error("access_jwks_invalid");
+  const keys = new Map<string, CryptoKey>();
+  for (const jwk of body.keys) {
+    if (jwk.kid && jwk.kty === "RSA" && jwk.alg === "RS256" && jwk.n && jwk.e) {
+      try {
+        const key = await crypto.subtle.importKey(
+          "jwk",
+          { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: jwk.alg, use: jwk.use || "sig", ext: true },
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          false,
+          ["verify"],
+        );
+        keys.set(jwk.kid, key);
+      } catch {
+        // Ignore malformed keys and fail closed if the token's key is absent.
+      }
+    }
+  }
+  if (!keys.size) throw new Error("access_jwks_empty");
+  accessJwksCache = { domain, keys, expiresAt: Date.now() + ACCESS_JWKS_TTL_MS };
+  return keys;
+}
+
+async function verifyCloudflareAccessJwt(
+  request: Request,
+  env: AgentWorkerEnv,
+): Promise<boolean> {
+  const domain = accessTeamDomain(env.CF_ACCESS_TEAM_DOMAIN);
+  const audience = env.CF_ACCESS_AUDIENCE?.trim();
+  if (!domain || !audience || audience.length > 256) return false;
+  const assertion = request.headers.get("cf-access-jwt-assertion");
+  const authorization = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  const token = assertion?.trim() || authorization;
+  if (!token || token.length > 16_384) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const header = decodeJwtJson<{ alg?: string; kid?: string }>(parts[0]);
+  const claims = decodeJwtJson<AccessClaims>(parts[1]);
+  const signature = base64UrlBytes(parts[2]);
+  if (!header?.kid || header.alg !== "RS256" || !claims || !signature) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.type !== "app" || claims.iss !== `https://${domain}`
+    || typeof claims.iat !== "number" || claims.iat > now + ACCESS_CLOCK_SKEW_SECONDS
+    || typeof claims.exp !== "number" || claims.exp <= now - ACCESS_CLOCK_SKEW_SECONDS
+    || (typeof claims.nbf === "number" && claims.nbf > now + ACCESS_CLOCK_SKEW_SECONDS)) return false;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(audience)) return false;
+  const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  let key: CryptoKey | undefined;
+  try {
+    key = (await loadAccessKeys(domain)).get(header.kid);
+    if (!key) key = (await loadAccessKeys(domain, true)).get(header.kid);
+    if (!key) return false;
+    return await crypto.subtle.verify(
+      { name: "RSASSA-PKCS1-v1_5" },
+      key,
+      signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength) as ArrayBuffer,
+      signingInput,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -318,6 +716,36 @@ function stringArray(args: Record<string, unknown>, key: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
     throw new Error(`invalid_${key}`);
   return value as string[];
+}
+
+async function runSemanticCommand(
+  env: AgentWorkerEnv,
+  command: string,
+  targetType: string,
+  targetId: string | null,
+  risk: string,
+  facts: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  idempotencyKey: string,
+  correlationId?: string | null,
+): Promise<unknown> {
+  if (!isSemanticCommand(command) || !isRiskLevel(risk)) throw new Error("invalid_semantic_command");
+  const inputHash = await sha256Hex(canonicalAuthorizationInput({
+    agentIdentity: AGENT_IDENTITY, command, targetType, targetId, risk, facts, payload,
+  }));
+  const decision = await supabaseRpc<Record<string, unknown>>(env, "evaluate_agent_command", {
+    agent_identity: AGENT_IDENTITY, command_value: command, target_kind: targetType,
+    target_value: targetId, risk_value: risk, facts, input_hash_value: inputHash,
+    correlation_value: correlationId || crypto.randomUUID(), idempotency_value: idempotencyKey,
+  });
+  if (decision.outcome !== "ALLOW_AUTOMATICALLY" || decision.replayed || !decision.decisionId) return { decision, execution: null };
+  const execution = ["create_article_draft", "update_article_content", "schedule_article_publication", "publish_article"].includes(command)
+    ? await supabaseRpc(env, "agent_execute_article_command", {
+      decision_id_value: decision.decisionId, agent_identity: AGENT_IDENTITY,
+      command_value: command, target_id_value: targetId, payload_value: payload,
+    })
+    : null;
+  return { decision, execution };
 }
 
 async function supabaseRpc<T>(
@@ -351,15 +779,15 @@ async function supabaseRpc<T>(
   return (await response.json()) as T;
 }
 
-function toolResult(id: JsonRpcRequest["id"], value: unknown): Response {
-  return json({
+function toolResult(id: JsonRpcRequest["id"], value: unknown, protocolVersion: string): Response {
+  return protocolJson({
     jsonrpc: "2.0",
     id: id ?? null,
     result: {
       content: [{ type: "text", text: JSON.stringify(value) }],
       structuredContent: value,
     },
-  });
+  }, protocolVersion);
 }
 
 async function callTool(
@@ -468,6 +896,30 @@ async function callTool(
         candidate_thread_id: requiredString(args, "threadId"),
         status_value: requiredString(args, "status"),
       });
+    case "list_articles":
+      return { articles: await supabaseRpc<unknown[]>(env, "get_published_articles", {}) };
+    case "get_article":
+      return { article: await supabaseRpc<Record<string, unknown> | null>(env, "get_published_article", { candidate_slug: requiredString(args, "slug") }) };
+    case "create_article_draft":
+      return runSemanticCommand(env, "create_article_draft", "article", null, "low", {}, {
+        slug: requiredString(args, "slug"), title: requiredString(args, "title"), excerpt: requiredString(args, "excerpt"),
+        contentBlocks: Array.isArray(args.contentBlocks) ? args.contentBlocks : [], seoTitle: optionalString(args, "seoTitle"),
+        seoDescription: optionalString(args, "seoDescription"), authorName: optionalString(args, "authorName"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "update_article_content":
+      return runSemanticCommand(env, "update_article_content", "article", requiredString(args, "articleId"), "low", {}, {
+        title: requiredString(args, "title"), excerpt: requiredString(args, "excerpt"),
+        contentBlocks: Array.isArray(args.contentBlocks) ? args.contentBlocks : [], seoTitle: optionalString(args, "seoTitle"),
+        seoDescription: optionalString(args, "seoDescription"), authorName: optionalString(args, "authorName"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "schedule_article_publication":
+      return runSemanticCommand(env, "schedule_article_publication", "article", requiredString(args, "articleId"), "moderate", {}, {
+        revisionId: requiredString(args, "revisionId"), scheduledAt: requiredString(args, "scheduledAt"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
+    case "publish_article":
+      return runSemanticCommand(env, "publish_article", "article", requiredString(args, "articleId"), "moderate", {}, {
+        revisionId: requiredString(args, "revisionId"),
+      }, requiredString(args, "idempotencyKey"), optionalString(args, "correlationId"));
     case "evaluate_semantic_command": {
       const command = requiredString(args, "command");
       const risk = requiredString(args, "risk");
@@ -504,9 +956,30 @@ async function callTool(
   }
 }
 
-async function handleAgentMcp(request: Request, env: AgentWorkerEnv): Promise<Response> {
+async function isTrustedArticleRequest(request: Request, env: AgentWorkerEnv): Promise<boolean> {
+  const url = new URL(request.url);
+  if (url.hostname === "mcp-beta.donatebymail.org") {
+    return verifyCloudflareAccessJwt(request, env);
+  }
+  if (url.hostname === "mcp-connector-beta.donatebymail.org") {
+    const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+    return safeSecretEqual(bearer, env.MCP_ARTICLE_BEARER_TOKEN);
+  }
+  if (url.hostname === "mcp-oauth-beta.donatebymail.org") {
+    // Cloudflare Access validates the managed-OAuth token before forwarding,
+    // but the origin must still verify the signed assertion (or forwarded
+    // bearer JWT) rather than trusting a header's presence.
+    return verifyCloudflareAccessJwt(request, env);
+  }
+  return false;
+}
+
+async function handleAgentMcp(request: Request, env: AgentWorkerEnv, articleOnly = false): Promise<Response> {
   const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
-  if (!(await safeSecretEqual(bearer, env.AGENT_API_KEY)))
+  const authorized = articleOnly
+    ? await isTrustedArticleRequest(request, env)
+    : await safeSecretEqual(bearer, env.AGENT_API_KEY);
+  if (!authorized)
     return json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }, 401);
   if (request.method !== "POST")
     return new Response(null, { status: 405, headers: { allow: "POST" } });
@@ -518,35 +991,45 @@ async function handleAgentMcp(request: Request, env: AgentWorkerEnv): Promise<Re
     return json({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }, 400);
   }
   const id = rpc.id ?? null;
+  const requestVersion = requestProtocolVersion(request);
 
   if (rpc.method === "notifications/initialized")
-    return new Response(null, { status: 202 });
-  if (rpc.method === "initialize")
-    return json({
+    return new Response(null, { status: 202, headers: { ...JSON_HEADERS, "MCP-Protocol-Version": requestVersion } });
+  if (rpc.method === "initialize") {
+    const requestedProtocolVersion = rpc.params?.protocolVersion;
+    const negotiatedProtocolVersion = requestedProtocolVersion && SUPPORTED_MCP_PROTOCOL_VERSIONS.has(requestedProtocolVersion)
+      ? requestedProtocolVersion
+      : MCP_PROTOCOL_VERSION;
+    return protocolJson({
       jsonrpc: "2.0",
       id,
       result: {
-        protocolVersion: "2025-11-25",
+        protocolVersion: negotiatedProtocolVersion,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "donate-by-mail-operations", version: "0.3.0" },
-        instructions: "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
+        serverInfo: { name: articleOnly ? "donate-by-mail-article-publisher" : "donate-by-mail-operations", version: "0.4.0" },
+        instructions: articleOnly
+          ? "This connector is limited to Donate by Mail editorial content. Use typed article blocks only. Draft creation, revision creation, future scheduling, and exact-revision publication are policy-controlled; the current beta policy allows these bounded editorial commands automatically. Do not request donor, partner, financial, credential, or arbitrary database data."
+          : "Use only the bounded Donate by Mail coworker tools. Authorize every support email before Gmail sends it, send the exact unchanged message, then record the provider IDs. Escalate financial, legal, privacy, access, complaint, and identity-mismatch cases.",
       },
-    });
+    }, negotiatedProtocolVersion);
+  }
   if (rpc.method === "tools/list")
-    return json({ jsonrpc: "2.0", id, result: { tools: MCP_TOOLS } });
+    return protocolJson({ jsonrpc: "2.0", id, result: { tools: articleOnly ? MCP_TOOLS.filter((tool) => ARTICLE_MCP_TOOL_NAMES.has(tool.name)) : MCP_TOOLS } }, requestVersion);
   if (rpc.method !== "tools/call" || !rpc.params?.name)
     return json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
 
   try {
+    if (articleOnly && !ARTICLE_MCP_TOOL_NAMES.has(rpc.params.name))
+      throw new Error("article_connector_tool_not_allowed");
     const value = await callTool(rpc.params.name, rpc.params.arguments ?? {}, env);
-    return toolResult(id, value);
+    return toolResult(id, value, requestVersion);
   } catch (error) {
     console.error(JSON.stringify({
       event: "agent_mcp_tool_failed",
       tool: rpc.params.name,
       reason: error instanceof Error ? error.message : "unknown",
     }));
-    return json({ jsonrpc: "2.0", id, error: { code: -32602, message: "The bounded operation was rejected." } });
+    return protocolJson({ jsonrpc: "2.0", id, error: { code: -32602, message: "The bounded operation was rejected." } }, requestVersion);
   }
 }
 
@@ -555,6 +1038,14 @@ const originalWorker = worker as ExportedHandler<any>;
 export default {
   async fetch(request: Request, env: AgentWorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const portalArticleHost = url.hostname === "mcp-connector-beta.donatebymail.org"
+      || url.hostname === "mcp-oauth-beta.donatebymail.org";
+    const privateArticleHost = url.hostname === "mcp-beta.donatebymail.org" && url.pathname === "/mcp/articles";
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && portalArticleHost
+      && (url.pathname === "/mcp" || url.pathname === "/mcp/articles"))
+      return handleAgentMcp(request, env, true);
+    if (env.DEPLOYMENT_ENVIRONMENT === "beta" && privateArticleHost)
+      return handleAgentMcp(request, env, true);
     if (env.DEPLOYMENT_ENVIRONMENT === "beta" && url.pathname === "/mcp")
       return handleAgentMcp(request, env);
     if (!originalWorker.fetch) throw new Error("worker_fetch_unavailable");

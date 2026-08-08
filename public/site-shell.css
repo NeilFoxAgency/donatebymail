@@ -117,6 +117,53 @@
   text-decoration: underline;
   text-underline-offset: 0.35em;
 }
+.nav-menu {
+  position: relative;
+  font-family: var(--shell-body);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+.nav-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+  color: var(--shell-navy);
+}
+.nav-menu > summary::-webkit-details-marker { display: none; }
+.nav-menu > summary::after {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  content: "";
+  transform: rotate(45deg) translateY(-0.12rem);
+  transition: transform 160ms ease;
+}
+.nav-menu[open] > summary::after { transform: rotate(225deg) translate(-0.08rem, -0.08rem); }
+.nav-menu > summary:hover,
+.nav-menu.nav-active > summary { text-decoration: underline; text-underline-offset: 0.35em; }
+.nav-menu-panel {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 0.45rem);
+  right: -0.9rem;
+  display: grid;
+  min-width: 13.5rem;
+  padding: 0.55rem;
+  border: 1px solid var(--shell-line);
+  background: var(--shell-paper);
+  box-shadow: 0 0.9rem 2rem rgba(23, 38, 58, 0.16);
+}
+.nav-menu-panel a {
+  display: block;
+  padding: 0.7rem 0.75rem;
+  color: var(--shell-navy);
+}
+.nav-menu-panel a:hover,
+.nav-menu-panel a[aria-current="page"] { background: #eef4f8; }
 .desktop-nav .nav-primary,
 .mobile-nav .nav-primary {
   background: var(--shell-red);
@@ -251,7 +298,9 @@
   object-fit: contain;
   object-position: center;
 }
-@media (max-width: 1000px) {
+/* The compact navigation becomes a full-width accessible menu before tablet
+   widths, while preserving the same grouped destinations. */
+@media (max-width: 1120px) {
   .desktop-nav {
     display: none;
   }
@@ -260,12 +309,37 @@
   }
   .mobile-nav:not([hidden]) {
     display: grid;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    align-items: stretch;
+    justify-content: initial;
+    gap: 0;
     padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--shell-line);
   }
   .mobile-nav a {
     padding: 0.85rem 0;
     border-bottom: 1px solid var(--shell-line);
+  }
+  .mobile-nav .nav-menu {
+    border-bottom: 1px solid var(--shell-line);
+  }
+  .mobile-nav .nav-menu > summary {
+    width: 100%;
+    min-height: 0;
+    padding: 0.85rem 0;
+  }
+  .mobile-nav .nav-menu-panel {
+    position: static;
+    min-width: 0;
+    padding: 0 0 0.35rem 0.9rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .mobile-nav .nav-menu-panel a {
+    padding: 0.7rem 0;
   }
   .mobile-nav .account-nav-link {
     margin-top: 0.75rem;
@@ -308,3 +382,5 @@
     padding: 3rem 1.25rem;
   }
 }
+:where(a, button, input, select, textarea, summary):focus-visible{outline:3px solid #f1b24a;outline-offset:3px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

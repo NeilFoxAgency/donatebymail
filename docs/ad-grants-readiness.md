@@ -1,6 +1,6 @@
 # Google Ad Grants website readiness
 
-Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
+Reviewed August 5, 2026 against current official Google for Nonprofits guidance.
 
 ## Website requirements addressed
 
@@ -17,7 +17,49 @@ Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
 | Fast loading | No site photography, video embeds, advertising scripts, or required external font requests. The production target is a static Vite build. |
 | No excessive commercial activity | The site states that Donate by Mail is not a trade-in marketplace, donors are not paid, and estimates are informational. No advertising or affiliate links are present. |
 | Contact and policies | Contact, Privacy, Terms, Accessibility, and Transparency pages are linked site-wide. |
-| Search discovery | `robots.txt`, `sitemap.xml`, canonical metadata, unique page descriptions, and NGO structured data are included. |
+| Search discovery | `robots.txt`, `sitemap.xml`, canonical metadata, unique page descriptions, and accurate Organization, WebSite, CollectionPage, and Article structured data are included where the corresponding content is visible. |
+| Ongoing original content | The **Blog** at `/articles` provides a crawlable editorial section with typed, human-readable articles, per-article metadata, canonical URLs, and Article structured data. Publishing is versioned and scheduled through the beta agent CMS; drafts never appear publicly. |
+
+## Security and crawlability checks added in the beta build
+
+- Static-page builds now receive consistent Open Graph/Twitter metadata, an
+  absolute production canonical, and an explicit indexable robots directive.
+- The Worker owns `robots.txt` and `sitemap.xml` on the production hostname.
+  Published article slugs are appended when the article read service is
+  available; a valid static sitemap remains available during an article-service
+  outage. Beta returns `Disallow: /` and no sitemap.
+- `/ads.txt` is an intentional 404 rather than the homepage returned by the
+  SPA fallback. Donate by Mail does not run an ad inventory program.
+- `npm run seo:check` checks titles, descriptions, canonicals, social metadata,
+  image alt text, absolute social images, beta/AppDeploy leakage, sitemap
+  contents, structured-data presence on the homepage, and the absence of a
+  static `ads.txt` asset.
+- Unknown HTML paths no longer receive the SPA homepage with a `200` response;
+  operational routes are marked `noindex` and `no-store` so staff/account
+  surfaces are not cached or presented as public content.
+- The successful active donation submission emits the consent-gated
+  `donation_packet_created` event without donation IDs, email addresses, or
+  other donor identifiers. GA4 remains optional until configured and tested.
+- GA4 IDs are accepted only in the `G-...` measurement-ID format, and each
+  event is sent once through `gtag` to avoid duplicate conversion counting.
+- Cloudflare Access-protected editorial MCP routes now verify the signed JWT
+  against the beta Access JWKS, issuer, audience, type, and time claims. A
+  forwarded-header presence check is not treated as authentication.
+
+These checks improve technical readiness; they do not establish domain
+verification, Search Console ownership, GA4 configuration, Google Ads import,
+or Ad Grants approval.
+
+The beta Supabase security/performance advisor run on August 5, 2026 returned
+one warning: leaked-password protection is disabled. Supabase documents that
+this control is available on Pro and above; the beta uses passwordless magic
+links rather than password sign-in. Recheck and enable it if the project plan
+or authentication model changes before real donor accounts are introduced.
+
+The project advisor also reports informational `RLS enabled, no policy` items
+for private operational tables. Those tables intentionally use explicit
+server-side RPC grants and default-deny RLS rather than broad client policies;
+the local advisor and migration lint runs report no warning-level issues.
 
 ## Final preview validation
 
@@ -45,6 +87,35 @@ Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
 7. Build mission-specific campaigns with relevant geography, at least two unique sitelinks, tightly themed ad groups, specific keywords, and conversion-based bidding where required.
 8. Maintain current Ad Grants account-level policies after activation.
 
+The website changes prepare the technical surface but do not satisfy the
+account-level grant controls by themselves. Before relying on Ad Grants,
+confirm the organization through Goodstack, verify domain ownership in Search
+Console, configure and test GA4/Google Ads conversion import, and operate
+campaigns with the required quality, click-through, keyword, ad-group, and
+sitelink controls. A packet-created event is an initial funnel signal; a
+post-receipt action should be evaluated as the more meaningful conversion once
+the Phase 1B operational status flow exists.
+
+The current production deployment predates these beta-only improvements. The
+branch must be deployed to beta and verified before any production rollout.
+
+## Article publishing workflow
+
+Articles are stored as immutable revisions in the private Supabase schema and
+served through narrow public read RPCs. The Workspace Agent can list and read
+published articles, create drafts, update content, schedule an exact revision,
+and publish an exact revision under the active beta policy. Both immediate and
+scheduled publication retain server-side revision matching, typed-content
+validation, idempotency, and audit records. Content blocks are validated
+server-side (paragraphs, headings, lists, quotes, and safe links) and rendered
+without raw HTML injection.
+
+This is readiness work, not a claim of Google Ad Grants approval. The account
+still needs organization verification, compliant campaigns, conversion
+tracking, and ongoing policy maintenance. See Google's [website policy](https://support.google.com/nonprofits/answer/1657899)
+and [Ad Grants compliance guidance](https://support.google.com/nonprofits/answer/9314402)
+for the current external requirements.
+
 ## Official Google sources
 
 - Website policy: https://support.google.com/nonprofits/answer/1657899
@@ -54,3 +125,14 @@ Reviewed July 20, 2026 against current official Google for Nonprofits guidance.
 - Conversion tracking: https://support.google.com/nonprofits/answer/9841491
 - Policy compliance: https://support.google.com/nonprofits/answer/9314402
 - Account management policy: https://support.google.com/nonprofits/answer/117827
+
+## Search and structured-data sources reviewed
+
+- [Google SEO Starter Guide](https://developers.google.com/search/docs/fundamentals/seo-starter-guide)
+- [Google Search Essentials](https://developers.google.com/search/docs/essentials)
+- [Structured data introduction](https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data)
+- [Structured data policies](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)
+- [Canonical URL consolidation](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls)
+- [Sitemaps overview](https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview)
+- [Mobile-first indexing](https://developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing)
+- [Core Web Vitals](https://developers.google.com/search/docs/appearance/core-web-vitals)

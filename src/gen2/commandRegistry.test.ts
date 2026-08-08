@@ -16,7 +16,8 @@ describe("semantic command contract", () => {
     ]));
   });
   it("matches the SQL registry seed", () => {
-    const sql = readFileSync("supabase/migrations/20260729214952_gen2_review_remediation.sql", "utf8");
+    const sql = readFileSync("supabase/migrations/20260729214952_gen2_review_remediation.sql", "utf8") +
+      readFileSync("supabase/migrations/20260802020057_article_cms.sql", "utf8");
     for (const command of SEMANTIC_COMMANDS) expect(sql).toContain(`('${command}',`);
     for (const risk of RISK_LEVELS) expect(sql).toContain(`'${risk}'`);
   });

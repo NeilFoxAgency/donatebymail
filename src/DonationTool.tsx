@@ -72,7 +72,6 @@ const baseValues: Record<Brand, Record<Age, number>> = {
 const conditionFactor: Record<Condition, number> = { Excellent: 1, Good: 0.78, Fair: 0.48, Damaged: 0.18 };
 const storageFactor: Record<Storage, number> = { '64 GB or less': 0.9, '128 GB': 1, '256 GB': 1.12, '512 GB+': 1.25 };
 const draftKey = 'dbm-donation-draft-v2';
-const recordKey = 'dbm-latest-donation-record';
 
 const blankDonor: DonorDetails = {
   name: '',
@@ -137,7 +136,7 @@ function PrintDocument({ record, kind, onClose }: { record: DonationRecord; kind
 
   const print = () => {
     document.body.dataset.printTarget = kind;
-    trackEvent(isPacking ? 'packing_slip_printed' : 'acknowledgment_preview_printed', { donation_id: record.id });
+    trackEvent(isPacking ? 'packing_slip_printed' : 'acknowledgment_preview_printed');
     window.print();
   };
 
@@ -156,12 +155,10 @@ function PrintDocument({ record, kind, onClose }: { record: DonationRecord; kind
 }
 
 export function loadLatestRecord(): DonationRecord | null {
-  try {
-    const saved = window.localStorage.getItem(recordKey);
-    return saved ? JSON.parse(saved) as DonationRecord : null;
-  } catch {
-    return null;
-  }
+  // Completed donor records must come from the server-backed donation flow.
+  // This legacy component is retained only for compatibility and never reads
+  // donor PII from browser storage.
+  return null;
 }
 
 export default function DonationTool({ onComplete }: { onComplete: (record: DonationRecord) => void }) {
@@ -180,7 +177,9 @@ export default function DonationTool({ onComplete }: { onComplete: (record: Dona
   const updateDonor = (key: keyof DonorDetails, value: string) => setDonor((current) => ({ ...current, [key]: value }));
 
   const saveDraft = () => {
-    window.localStorage.setItem(draftKey, JSON.stringify({ devices, donor, shippingMethod }));
+    // Device details are not donor identity data. Never persist names,
+    // addresses, or email addresses in browser storage.
+    window.localStorage.setItem(draftKey, JSON.stringify({ devices, shippingMethod }));
     setDraftSaved(true);
     trackEvent('donation_draft_saved', { device_count: devices.length });
     window.setTimeout(() => setDraftSaved(false), 2500);
@@ -190,9 +189,8 @@ export default function DonationTool({ onComplete }: { onComplete: (record: Dona
     try {
       const saved = window.localStorage.getItem(draftKey);
       if (!saved) return;
-      const parsed = JSON.parse(saved) as { devices: Device[]; donor: DonorDetails; shippingMethod: ShippingMethod };
+      const parsed = JSON.parse(saved) as { devices: Device[]; shippingMethod: ShippingMethod };
       setDevices(parsed.devices);
-      setDonor(parsed.donor);
       trackEvent('donation_draft_restored');
     } catch {
       window.localStorage.removeItem(draftKey);
@@ -209,8 +207,7 @@ export default function DonationTool({ onComplete }: { onComplete: (record: Dona
       shippingMethod,
       devices,
     };
-    window.localStorage.setItem(recordKey, JSON.stringify(record));
-    trackEvent('donation_packet_created', { donation_id: record.id, device_count: record.devices.length, shipping_method: shippingMethod });
+    trackEvent('donation_packet_created', { device_count: record.devices.length, shipping_method: shippingMethod });
     onComplete(record);
   };
 

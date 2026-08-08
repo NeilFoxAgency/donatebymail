@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "donate-by-mail",
-  "compatibility_date": "2026-07-21",
+  "compatibility_date": "2026-08-07",
   "main": "src/agentWorker.ts",
   "workers_dev": true,
   "routes": [
@@ -36,7 +36,7 @@
   },
   "env": {
     "beta": {
-      "workers_dev": true,
+      "workers_dev": false,
       "assets": {
         "directory": "./dist",
         "binding": "ASSETS",
@@ -46,6 +46,18 @@
       "routes": [
         {
           "pattern": "beta.donatebymail.org",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "mcp-beta.donatebymail.org",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "mcp-connector-beta.donatebymail.org",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "mcp-oauth-beta.donatebymail.org",
           "custom_domain": true,
         },
       ],
@@ -59,6 +71,7 @@
           "DONATION_TRACKING_SECRET",
           "BFF_SESSION_SECRET",
           "AGENT_API_KEY",
+          "MCP_ARTICLE_BEARER_TOKEN",
         ],
       },
       "triggers": {
@@ -66,6 +79,8 @@
       },
       "vars": {
         "DEPLOYMENT_ENVIRONMENT": "beta",
+        "CF_ACCESS_TEAM_DOMAIN": "nameless-resonance-00ea.cloudflareaccess.com",
+        "CF_ACCESS_AUDIENCE": "24a4b765443b92f55680c9983cfdec85bf3dc9b03e572671141053dcfba9b959",
         "BREVO_SENDER_EMAIL": "contact@donatebymail.org",
         "BREVO_SENDER_NAME": "Donate by Mail Beta",
         "ADMIN_NOTIFICATION_TO": "tre@donatebymail.org",
