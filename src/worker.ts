@@ -118,6 +118,7 @@ async function supabaseRpc<T>(
     "content-profile": "api",
     "accept-profile": "api",
   };
+  const correlationId = crypto.randomUUID();
   // Legacy service-role JWTs require Authorization; modern sb_secret keys must
   // be sent only as apikey so the Supabase gateway assigns the service role.
   if (env.SUPABASE_SECRET_KEY.startsWith("eyJ"))
@@ -131,10 +132,9 @@ async function supabaseRpc<T>(
     },
   );
   if (!response.ok) {
-    const diagnostic = (await response.text()).slice(0, 300).replace(/[\r\n]+/g, " ");
     console.error(JSON.stringify({
       event: "supabase_rpc_failed", functionName, status: response.status,
-      host: new URL(env.SUPABASE_URL).hostname, diagnostic,
+      correlationId,
     }));
     throw new Error("The beta data service rejected the request.");
   }
