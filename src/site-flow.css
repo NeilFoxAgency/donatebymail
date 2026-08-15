@@ -4,3 +4,4 @@
 :where(a, button, input, select, textarea, summary):focus-visible{outline:3px solid #f1b24a;outline-offset:3px}
 @media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 .progress li { color: var(--muted); }
+html, body { max-width: 100%; overflow-x: clip; }
