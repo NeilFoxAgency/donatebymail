@@ -67,9 +67,10 @@ export function validateWorkerDeploymentRouting(configText) {
     errors.push("Production deployment refused. workers.dev must remain disabled for every environment.");
   if (/["']preview_urls["']\s*:\s*true\b/i.test(text))
     errors.push("Production deployment refused. Workers preview URLs must remain disabled for every environment.");
+  const customDomainPatterns = [...text.matchAll(/["']pattern["']\s*:\s*["']([^"']+)["'][\s\S]{0,120}?["']custom_domain["']\s*:\s*true/gi)]
+    .map((match) => match[1]);
   for (const hostname of ["donatebymail.org", "www.donatebymail.org"]) {
-    const escaped = hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (!new RegExp(`['\"]pattern['\"]\\s*:\\s*['\"]${escaped}['\"][\\s\\S]{0,120}['\"]custom_domain['\"]\\s*:\\s*true`, "i").test(text))
+    if (!customDomainPatterns.includes(hostname))
       errors.push(`Production deployment refused. The ${hostname} custom domain route is missing.`);
   }
   return errors;

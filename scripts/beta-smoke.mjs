@@ -75,6 +75,10 @@ async function boundedText(response) {
   return new TextDecoder().decode(bytes);
 }
 
+function cspHasSource(policy, source) {
+  return policy.split(/\s+/).some((token) => token.replace(/;$/, "") === source);
+}
+
 const httpOrigin = origin.replace(/^https:/, "http:");
 const httpResponse = await fetchWithTimeout(`${httpOrigin}/`, { redirect: "manual" });
 const redirectLocation = httpResponse.headers.get("location");
@@ -99,9 +103,9 @@ const contentSecurityPolicy = response.headers.get("content-security-policy") ||
 if (response.headers.get("x-dbm-application-contract-version") !== REQUIRED_APPLICATION_CONTRACT_VERSION
   || !contentSecurityPolicy.includes("default-src 'self'")
   || !contentSecurityPolicy.includes("frame-ancestors 'none'")
-  || !contentSecurityPolicy.includes("https://staging.pledge.to")
-  || !contentSecurityPolicy.includes("https://api-staging.pledge.to")
-  || contentSecurityPolicy.includes("https://api.pledge.to")
+  || !cspHasSource(contentSecurityPolicy, "https://staging.pledge.to")
+  || !cspHasSource(contentSecurityPolicy, "https://api-staging.pledge.to")
+  || cspHasSource(contentSecurityPolicy, "https://api.pledge.to")
   || response.headers.get("x-content-type-options")?.toLowerCase() !== "nosniff"
   || response.headers.get("x-frame-options")?.toUpperCase() !== "DENY"
   || response.headers.get("referrer-policy")?.toLowerCase() !== "strict-origin-when-cross-origin"

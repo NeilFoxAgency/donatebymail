@@ -2802,7 +2802,7 @@ async function injectPublicMetadata(
       ["name", "twitter:image:alt"],
     ] as const;
     for (const [attribute, value] of routeMeta) {
-      const escaped = value.replace(/[:]/g, "\\:");
+      const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       html = html.replace(new RegExp(`<meta\\s+${attribute}=["']${escaped}["'][^>]*>`, "gi"), "");
     }
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${safe(metadata.title)}</title>`)

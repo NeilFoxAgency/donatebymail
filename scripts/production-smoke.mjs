@@ -67,6 +67,10 @@ async function boundedText(response) {
   return new TextDecoder().decode(bytes);
 }
 
+function cspHasSource(policy, source) {
+  return policy.split(/\s+/).some((token) => token.replace(/;$/, "") === source);
+}
+
 async function jsonEndpoint(origin, path, init = {}) {
   const response = await fetchWithTimeout(`${origin}${path}`, init);
   const contentType = response.headers.get("content-type") || "";
@@ -109,8 +113,8 @@ export async function checkProductionEndpoints(originValue = DEFAULT_ORIGIN) {
     || homepage.headers.get("x-dbm-application-contract-version") !== REQUIRED_APPLICATION_CONTRACT_VERSION
     || !/^max-age=31536000;\s*includeSubDomains$/i.test(hsts.trim())
     || !csp.includes("default-src 'self'") || !csp.includes("frame-ancestors 'none'")
-    || !csp.includes("https://www.pledge.to") || !csp.includes("https://api.pledge.to")
-    || csp.includes("https://staging.pledge.to") || csp.includes("https://api-staging.pledge.to")
+    || !cspHasSource(csp, "https://www.pledge.to") || !cspHasSource(csp, "https://api.pledge.to")
+    || cspHasSource(csp, "https://staging.pledge.to") || cspHasSource(csp, "https://api-staging.pledge.to")
     || homepage.headers.get("x-content-type-options")?.toLowerCase() !== "nosniff"
     || homepage.headers.get("x-frame-options")?.toUpperCase() !== "DENY"
     || homepage.headers.get("referrer-policy")?.toLowerCase() !== "strict-origin-when-cross-origin"

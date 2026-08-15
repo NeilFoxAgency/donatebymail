@@ -10,7 +10,11 @@ const MAX_DRAFT_DEVICES = 20;
 export function serializeDonationDraft<Device, Charity>(
   draft: DonationDraft<Device, Charity>,
 ): string {
-  return JSON.stringify(draft);
+  // Keep beneficiary data out of browser storage. It is public-facing data,
+  // but it still comes from a remote response and does not belong in a local
+  // persistence boundary. The selection can be re-established from campaign
+  // context or the donor can choose it again when reopening a draft.
+  return JSON.stringify({ devices: draft.devices, step: draft.step });
 }
 
 export function parseDonationDraft<Device, Charity>(
@@ -36,7 +40,7 @@ export function parseDonationDraft<Device, Charity>(
     throw new Error("invalid_donation_draft");
   return {
     devices: candidate.devices as Device[],
-    selectedCharity: (candidate.selectedCharity ?? null) as Charity | null,
+    selectedCharity: null as Charity | null,
     step: candidate.step as number,
   };
 }
