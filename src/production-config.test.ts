@@ -205,9 +205,23 @@ describe("production release configuration", () => {
       "Cloudflare minimum TLS version must be 1.2 or newer.",
       "Cloudflare edge HSTS must be enabled for at least one year with subdomains.",
       "Cloudflare edge nosniff must be enabled.",
-      "Cloudflare managed WAF must be enabled.",
+      "Cloudflare managed WAF or the active Free Managed Ruleset must be enabled.",
       "Cloudflare SSL mode must be full or strict.",
     ]));
+    expect(validateProductionEdgeSettings([
+      { id: "always_use_https", value: "on" },
+      { id: "min_tls_version", value: "1.2" },
+      { id: "security_header", value: { strict_transport_security: {
+        enabled: true, max_age: 31_536_000, include_subdomains: true, nosniff: true,
+      } } },
+      { id: "waf", value: "off" },
+      { id: "ssl", value: "full" },
+    ], [{
+      kind: "managed",
+      name: "Cloudflare Managed Free Ruleset",
+      phase: "http_request_firewall_managed",
+      rules: [{ enabled: true }],
+    }])).toEqual([]);
   });
 
   it("fails runtime readiness when a production control is absent", () => {
