@@ -176,6 +176,7 @@ describe("production release configuration", () => {
   it("requires an independently secure Cloudflare edge perimeter", () => {
     expect(validateProductionEdgeSettings([
       { id: "always_use_https", value: "on" },
+      { id: "browser_check", value: "on" },
       { id: "min_tls_version", value: "1.2" },
       { id: "security_header", value: { strict_transport_security: {
         enabled: true, max_age: "not-a-number", include_subdomains: true, nosniff: true,
@@ -185,6 +186,7 @@ describe("production release configuration", () => {
     ])).toContain("Cloudflare edge HSTS must be enabled for at least one year with subdomains.");
     expect(validateProductionEdgeSettings([
       { id: "always_use_https", value: "on" },
+      { id: "browser_check", value: "on" },
       { id: "min_tls_version", value: "1.2" },
       { id: "security_header", value: { strict_transport_security: {
         enabled: true, max_age: 31_536_000, include_subdomains: true, nosniff: true,
@@ -194,6 +196,7 @@ describe("production release configuration", () => {
     ])).toEqual([]);
     expect(validateProductionEdgeSettings([
       { id: "always_use_https", value: "off" },
+      { id: "browser_check", value: "off" },
       { id: "min_tls_version", value: "1.0" },
       { id: "security_header", value: { strict_transport_security: {
         enabled: false, max_age: 0, include_subdomains: false, nosniff: false,
@@ -202,6 +205,7 @@ describe("production release configuration", () => {
       { id: "ssl", value: "flexible" },
     ])).toEqual(expect.arrayContaining([
       "Cloudflare Always Use HTTPS must be enabled.",
+      "Cloudflare Browser Integrity Check must be enabled.",
       "Cloudflare minimum TLS version must be 1.2 or newer.",
       "Cloudflare edge HSTS must be enabled for at least one year with subdomains.",
       "Cloudflare edge nosniff must be enabled.",
@@ -210,6 +214,7 @@ describe("production release configuration", () => {
     ]));
     expect(validateProductionEdgeSettings([
       { id: "always_use_https", value: "on" },
+      { id: "browser_check", value: "on" },
       { id: "min_tls_version", value: "1.2" },
       { id: "security_header", value: { strict_transport_security: {
         enabled: true, max_age: 31_536_000, include_subdomains: true, nosniff: true,

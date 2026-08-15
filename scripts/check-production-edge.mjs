@@ -35,6 +35,8 @@ export function validateProductionEdgeSettings(settings = [], rulesets = []) {
     errors.push("Cloudflare Always Use HTTPS must be enabled.");
   if (minimumTlsVersion(values.get("min_tls_version")) < 1.2)
     errors.push("Cloudflare minimum TLS version must be 1.2 or newer.");
+  if (values.get("browser_check") !== "on")
+    errors.push("Cloudflare Browser Integrity Check must be enabled.");
 
   const securityHeader = values.get("security_header");
   const strictTransportSecurity = securityHeader?.strict_transport_security;
