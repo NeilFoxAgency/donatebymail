@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Donate by Mail</title>
+  <rect width="64" height="64" rx="14" fill="#123b66"/>
+  <path d="M20 12h24a5 5 0 0 1 5 5v30a5 5 0 0 1-5 5H20a5 5 0 0 1-5-5V17a5 5 0 0 1 5-5Zm0 6a1 1 0 0 0-1 1v26h26V19a1 1 0 0 0-1-1H20Zm12 31a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" fill="#fff"/>
+  <path d="M20 21h24v5H20z" fill="#ef5b5b"/>
+</svg>

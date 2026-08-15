@@ -334,6 +334,7 @@ begin
     from app_private.organizations o
     join app_private.partner_invitations i on i.organization_id = o.id
     where i.email_search = normalized_email and i.status = 'invited'
+      and i.revoked_at is null and i.expires_at > now() and not i.accepted_once
   ), authorized_orgs as (
     select distinct on (id) id, access_state, role, membership_status
     from candidate_orgs

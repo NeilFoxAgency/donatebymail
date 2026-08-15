@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(39);
 
 select has_table('app_private', 'articles', 'articles remain in the private schema');
 select has_table('app_private', 'article_revisions', 'article revisions remain private');
@@ -8,10 +8,19 @@ select has_function('api', 'get_published_articles', array[]::text[], 'published
 select has_function('api', 'get_published_article', array['text'], 'published article detail uses a narrow RPC');
 select has_function('api', 'agent_execute_article_command', array['uuid','text','text','uuid','jsonb'], 'article writes use a semantic executor');
 select has_function('api', 'publish_due_articles', array[]::text[], 'scheduled publishing uses a narrow scheduler RPC');
+select is(position('limit 500' in lower(pg_get_functiondef('api.publish_due_articles()'::regprocedure))) > 0, true,
+  'scheduled publication runs in a bounded batch');
 select is(has_table_privilege('anon', 'app_private.articles', 'select'), false, 'anonymous callers cannot read article drafts');
 select is(has_function_privilege('anon', 'api.get_published_articles()', 'execute'), false, 'anonymous callers cannot invoke the private article RPC directly');
 select is(app_private.validate_article_blocks('[{"type":"paragraph","text":"Safe content"}]'::jsonb), true, 'typed paragraph blocks validate');
 select is(app_private.validate_article_blocks('[{"type":"html","html":"<script>bad</script>"}]'::jsonb), false, 'unknown executable block types are rejected');
+select is(app_private.validate_article_blocks('[]'::jsonb), false, 'empty articles cannot pass the publication content validator');
+select is(app_private.validate_article_blocks('[{"type":"list","ordered":false,"items":[{"unsafe":"object"}]}]'::jsonb), false, 'list items must remain plain strings');
+select is(app_private.validate_article_blocks('[{"type":"link","label":"external","href":"//evil.example"}]'::jsonb), false, 'protocol-relative article links are rejected');
+select is(app_private.validate_article_blocks('[{"type":"link","label":"external","href":"/\\evil"}]'::jsonb), false, 'backslash-relative article links are rejected');
+select is(app_private.validate_article_blocks('[{"type":"paragraph","text":"Safe content","hidden":"ignored"}]'::jsonb), false, 'article blocks reject unknown properties');
+select is(app_private.validate_article_blocks('[{"type":"list","ordered":true,"items":["Safe"],"extra":false}]'::jsonb), false, 'list blocks reject ignored properties');
+select is(app_private.validate_article_blocks('[{"type":"heading","level":2.5,"text":"Not an integer heading"}]'::jsonb), false, 'heading levels reject fractional JSON numbers');
 
 select set_config('request.jwt.claim.role', 'service_role', true);
 insert into auth.users(id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
@@ -62,6 +71,14 @@ select is((select count(*)::integer from app_private.audit_events where action_n
 
 update app_private.articles set status = 'archived' where slug = 'phone-data-basics';
 select throws_ok($$update app_private.articles set status = 'published' where slug = 'phone-data-basics'$$, '42501', 'archived article cannot be published', 'archived articles cannot be republished');
+
+insert into app_private.articles(slug, status) values ('second-article', 'draft');
+select throws_ok(format($$update app_private.articles set status='published', published_revision_id=%L::uuid where slug='second-article'$$,
+  (select current_revision_id from app_private.articles where slug='phone-data-basics')),
+  '23514','published revision must reference a revision owned by the same article','cross-article revision pointers are rejected');
+select throws_ok(format($$update app_private.articles set current_revision_id=%L::uuid where slug='second-article'$$,
+  (select current_revision_id from app_private.articles where slug='phone-data-basics')),
+  '23514','current revision must reference a revision owned by the same article','cross-article current revision pointers are rejected');
 
 select * from finish();
 rollback;

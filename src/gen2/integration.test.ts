@@ -81,23 +81,46 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
   const env = {
     DEPLOYMENT_ENVIRONMENT: "beta" as const, SUPABASE_URL: supabaseUrl,
     SUPABASE_SECRET_KEY: serviceKey, SUPABASE_PUBLISHABLE_KEY: publishableKey,
+    PLEDGE_API_KEY: ["integration-pledge-key"].join(""),
+    BREVO_API_KEY: ["integration-brevo-key"].join(""),
     DONATION_TRACKING_SECRET: "integration-tracking-secret-32-characters-minimum",
     AGENT_API_KEY: "integration-agent-key-32-characters-minimum",
+    MCP_ARTICLE_BEARER_TOKEN: "integration-article-bearer-32-characters-minimum",
+    CF_ACCESS_TEAM_DOMAIN: "integration.cloudflareaccess.com",
+    CF_ACCESS_AUDIENCE: "integration-access-audience-32-characters-minimum",
     ADMIN_NOTIFICATION_TO: "tre+beta@donatebymail.org", BREVO_SENDER_EMAIL: "contact@donatebymail.org",
     BREVO_SENDER_NAME: "Donate by Mail", REPLY_TO_EMAIL: "contact@donatebymail.org",
     BFF_SESSION_SECRET: "integration-bff-secret-32-characters-minimum", BREVO_API_URL: "",
   } as any;
 
   it("persists campaign attribution and rejects a tampered beneficiary", async () => {
+    const requestStartedAt = Date.now();
     const payload = { id: "DBM-INTEGRATION", createdAt: new Date().toISOString(), clientSubmissionKey: crypto.randomUUID(), shippingMethod: "label", campaignSlug: "integration-campaign",
-      donor: { firstName: "Integration", middleName: "", lastName: "Donor", email: "integration-donor@example.test", address1: "1 Main", address2: "", city: "Kissimmee", state: "FL", zip: "34741", country: "US", marketingEmailConsent: false },
-      charity: { pledgeId, name: "Integration Charity" }, devices: [{ id: "device-1", brand: "Apple", model: "Phone", age: "2-3 years", condition: "Good", storage: "128 GB", powersOn: true, unlocked: true }] };
-    const response = await worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }), env);
+      donor: { firstName: "Integration", middleName: "", lastName: "Donor", email: "integration-donor@example.test", address1: "1 Main", address2: "", city: "Kissimmee", state: "FL", zip: "34741", country: "US", marketingEmailConsent: true, marketingConsentAt: "2099-12-31T23:59:59.000Z" },
+      charity: { pledgeId, name: "Forged presentation label", ein: "99-9999999" }, devices: [{ id: "device-1", brand: "Apple", model: "Phone", age: "2-3 years", condition: "Good", storage: "128 GB", powersOn: true, unlocked: true }] };
+    const response = await worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json", origin: "http://integration.test" }, body: JSON.stringify(payload) }), env);
     if (response.status !== 201) throw new Error(`campaign submission ${response.status}: ${await response.text()}`);
-    const publicId = (await response.json() as { donationId: string }).donationId;
+    const created = await response.json() as { donationId: string; trackingUrl?: string; claimUrl?: string; charity?: { name?: string; ein?: string } };
+    const publicId = created.donationId;
+    expect(created.charity?.name).toBe("Integration Charity");
+    expect(created.charity?.ein).toBeUndefined();
+    expect(created.trackingUrl).toContain("/track#");
+    expect(created.claimUrl).toContain("/account#");
+    const consentAt = Date.parse(sql(`select marketing_consent_at::text from app_private.donor_contacts where email_search='integration-donor@example.test'`));
+    expect(consentAt).toBeGreaterThanOrEqual(requestStartedAt - 5_000);
+    expect(consentAt).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(consentAt).not.toBe(Date.parse("2099-12-31T23:59:59.000Z"));
+    const replay = await worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json", origin: "http://integration.test" }, body: JSON.stringify(payload) }), env);
+    expect(replay.status).toBe(200);
+    const replayed = await replay.json() as { replayed?: boolean; trackingUrl?: string; claimUrl?: string; notificationPending?: boolean };
+    expect(replayed.replayed).toBe(true);
+    expect(replayed.trackingUrl).toContain("/track#");
+    expect(replayed.claimUrl).toContain("/account#");
+    expect(replayed.notificationPending).toBe(false);
     expect(sql(`select campaign_id::text||':'||selected_charity_pledge_id::text||':'||coalesce(policy_version_snapshot_id::text,'') from app_private.donations where public_id='${publicId}'`)).toBe(`${campaignId}:${pledgeId}:${policyVersionId}`);
     const tampered = { ...payload, clientSubmissionKey: crypto.randomUUID(), charity: { pledgeId: "b1000000-0000-4000-8000-000000000099", name: "Wrong" } };
-    await expect(worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(tampered) }), env)).rejects.toThrow();
+    const rejected = await worker.fetch(new Request("http://integration.test/api/donations", { method: "POST", headers: { "content-type": "application/json", origin: "http://integration.test" }, body: JSON.stringify(tampered) }), env);
+    expect(rejected.status).toBe(400);
   });
 
   it("executes only policy-allowed agent commands and exposes redacted read tools", async () => {
@@ -126,6 +149,12 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
     expect((await replayResponse.json() as { decision: Record<string, unknown> }).decision.replayed).toBe(true);
     expect(sql(`select count(*) from app_private.donation_internal_notes where donation_id='${donationId}' and created_by_agent='workspace-agent-beta'`)).toBe("1");
 
+    const spoofedIdentity = await worker.fetch(new Request("http://integration.test/api/agent/v1/commands", {
+      method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...commandBody, idempotencyKey: "integration-agent-spoof-1", agentIdentity: "forged-operator" }),
+    }), env);
+    expect(spoofedIdentity.status).toBe(403);
+
     const queryResponse = await worker.fetch(new Request("http://integration.test/api/agent/v1/queries", {
       method: "POST", headers: { authorization: `Bearer ${env.AGENT_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({ kind: "donation_status", publicId }),
     }), env);
@@ -140,7 +169,8 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
     }), env);
     expect(toolsResponse.status).toBe(200);
     const toolsResult = await toolsResponse.json() as { result: { tools: Array<{ name: string }> } };
-    expect(toolsResult.result.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["get_donation_status", "get_campaign_metrics", "evaluate_semantic_command"]));
+    expect(toolsResult.result.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["get_donation_status", "evaluate_semantic_command"]));
+    expect(toolsResult.result.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["get_campaign_metrics", "get_partner_context"]));
   });
 
   it("runs status outbox through the actual Worker dispatcher and mocked Brevo", async () => {
@@ -162,11 +192,11 @@ describe.skipIf(!integration)("actual Worker + local Supabase integration", () =
       campaignSlug: "integration-campaign",
       donor: { firstName: "Zero", middleName: "", lastName: "Proceeds", email: "integration-zero@example.test", address1: "2 Main", address2: "", city: "Kissimmee", state: "FL", zip: "34741", country: "US", marketingEmailConsent: false },
       charity: { pledgeId, name: "Integration Charity" },
-      devices: [{ id: "zero-device-1", brand: "Apple", model: "Broken Phone", age: "6+ years", condition: "Broken", storage: "16 GB", powersOn: false, unlocked: true }],
+      devices: [{ id: "zero-device-1", brand: "Apple", model: "Broken Phone", age: "6+ years", condition: "Damaged", storage: "64 GB or less", powersOn: false, unlocked: true }],
     };
     const response = await worker.fetch(new Request("http://integration.test/api/donations", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", origin: "http://integration.test" },
       body: JSON.stringify(payload),
     }), env);
     if (response.status !== 201) throw new Error(`zero-proceeds submission ${response.status}: ${await response.text()}`);

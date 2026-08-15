@@ -352,7 +352,7 @@ begin
   insert into app_private.audit_events(actor,actor_ref,action_name,entity_type,entity_id,reason_code,redacted_changes,metadata)
   values('donor',donation_row.id::text,'donation.submit','donation',donation_row.id,'donor_submission',
     jsonb_build_object('device_count',jsonb_array_length(payload->'devices'),'campaign_id',campaign_row.id,
-      'policy_version_id',policy_id_value),jsonb_build_object('environment','beta','pii_redacted',true));
+      'policy_version_id',policy_id_value),jsonb_build_object('pii_redacted',true));
   insert into app_private.domain_events(event_type,aggregate_type,aggregate_id,aggregate_version,payload)
   values('donation.created','donation',donation_row.id,1,jsonb_build_object('donationId',donation_row.id,
     'publicId',donation_row.public_id,'campaignId',campaign_row.id)) returning id into domain_event_id;

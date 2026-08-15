@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, FileText } from "lucide-react";
+import { publicApi } from "./AuthSession";
+import { safeJsonLdText } from "./jsonLd";
 
 type ArticleBlock =
   | { type: "paragraph" | "quote"; text: string }
   | { type: "heading"; level: 2 | 3 | 4; text: string }
-  | { type: "list"; items: string[] }
+  | { type: "list"; ordered?: boolean; items: string[] }
   | { type: "link"; label: string; href: string };
 
 type ArticleSummary = {
@@ -28,6 +30,24 @@ type Article = ArticleSummary & {
 
 const SITE_ORIGIN = "https://donatebymail.org";
 
+// Article links are authored content. Keep the renderer defensive even when
+// an older revision predates the database URL constraint or an upstream
+// response has been tampered with: only site-root paths and HTTPS URLs are
+// allowed, never protocol-relative or script/data links.
+function safeArticleHref(value: string): string | null {
+  const href = value.trim();
+  // Browsers treat backslashes as URL separators. Reject them before
+  // accepting a root-relative path so `/\\evil` cannot become external.
+  if (!href || /[\s\\<>"']/.test(href)) return null;
+  if (href.startsWith("/")) return href.startsWith("//") ? null : href;
+  try {
+    const url = new URL(href);
+    return url.protocol === "https:" && !url.username && !url.password ? href : null;
+  } catch {
+    return null;
+  }
+}
+
 function setMeta(name: string, content: string, property = false) {
   const selector = property ? `meta[property="${name}"]` : `meta[name="${name}"]`;
   let element = document.head.querySelector<HTMLMetaElement>(selector);
@@ -42,10 +62,13 @@ function setMeta(name: string, content: string, property = false) {
 
 function ArticleJsonLd({ article }: { article: Article }) {
   useEffect(() => {
-    const script = document.createElement("script");
+    const existing = document.head.querySelector<HTMLScriptElement>(
+      'script[type="application/ld+json"][data-article-structured-data="true"]',
+    );
+    const script = existing || document.createElement("script");
     script.type = "application/ld+json";
     script.dataset.articleStructuredData = "true";
-    script.textContent = JSON.stringify({
+    script.textContent = safeJsonLdText({
       "@context": "https://schema.org",
       "@type": "Article",
       headline: article.title,
@@ -57,27 +80,43 @@ function ArticleJsonLd({ article }: { article: Article }) {
       mainEntityOfPage: `${SITE_ORIGIN}/articles/${article.slug}`,
       publisher: { "@type": "Organization", name: "Donate by Mail", url: SITE_ORIGIN },
     });
-    document.head.appendChild(script);
+    if (!existing) document.head.appendChild(script);
+    // The metadata is route-specific. Remove a server-injected script on
+    // unmount so client-side navigation cannot leave stale article schema on
+    // the blog index or another article.
     return () => { script.remove(); };
   }, [article]);
   return null;
 }
 
 function ArticleBlocks({ blocks }: { blocks: ArticleBlock[] }) {
+  const safeBlocks = Array.isArray(blocks) ? blocks : [];
   return (
     <div className="article-body">
-      {blocks.map((block, index) => {
+      {safeBlocks.map((block, index) => {
+        if (!block || typeof block !== "object" || typeof block.type !== "string") return null;
         if (block.type === "heading") {
+          if (typeof block.text !== "string" || block.level !== 2 && block.level !== 3 && block.level !== 4) return null;
           const Heading = `h${block.level}` as "h2" | "h3" | "h4";
           return <Heading key={index}>{block.text}</Heading>;
         }
-        if (block.type === "paragraph") return <p key={index}>{block.text}</p>;
-        if (block.type === "quote") return <blockquote key={index}>{block.text}</blockquote>;
-        if (block.type === "list") return <ul key={index}>{block.items.map((item) => <li key={item}>{item}</li>)}</ul>;
+        if (block.type === "paragraph") return typeof block.text === "string" ? <p key={index}>{block.text}</p> : null;
+        if (block.type === "quote") return typeof block.text === "string" ? <blockquote key={index}>{block.text}</blockquote> : null;
+        if (block.type === "list") {
+          if (!Array.isArray(block.items)) return null;
+          const items = block.items.filter((item): item is string => typeof item === "string");
+          if (!items.length) return null;
+          const List = block.ordered === true ? "ol" : "ul";
+          return <List key={index}>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{item}</li>)}</List>;
+        }
         if (block.type !== "link") return null;
+        if (typeof block.label !== "string" || typeof block.href !== "string") return null;
+        const href = safeArticleHref(block.href);
+        if (!href) return null;
+        const external = /^https:\/\//i.test(href);
         return (
           <p className="article-inline-link" key={index}>
-            <a href={block.href} rel={block.href.startsWith("https://") ? "noopener noreferrer" : undefined} target={block.href.startsWith("https://") ? "_blank" : undefined}>
+            <a href={href} rel={external ? "noopener noreferrer" : undefined} target={external ? "_blank" : undefined}>
               {block.label} <ArrowRight aria-hidden="true" />
             </a>
           </p>
@@ -108,18 +147,14 @@ export function ArticlesPage({ slug }: { slug?: string }) {
 
   useEffect(() => {
     let active = true;
+    // Dynamic article routes may reuse this component. Do not render the
+    // previous article while the new slug (or list) is still loading.
+    setArticle(null);
+    if (!slug) setArticles([]);
     setLoading(true); setError("");
     const endpoint = slug ? `/api/articles/${encodeURIComponent(slug)}` : "/api/articles";
-    fetch(endpoint, { headers: { accept: "application/json" }, cache: "no-store" })
-      .then(async (response) => {
-        const raw = await response.text();
-        let body: { articles?: ArticleSummary[]; article?: Article; message?: string };
-        try {
-          body = JSON.parse(raw) as { articles?: ArticleSummary[]; article?: Article; message?: string };
-        } catch {
-          throw new Error("We could not load articles right now. Please try again.");
-        }
-        if (!response.ok) throw new Error(body.message || "We could not load articles right now.");
+    publicApi<{ articles?: ArticleSummary[]; article?: Article }>(endpoint)
+      .then((body) => {
         if (!active) return;
         if (slug) setArticle(body.article || null); else setArticles(body.articles || []);
       })

@@ -19,13 +19,20 @@ try {
     { encoding: "utf8" },
   );
 
-  if (result.error) throw result.error;
+  if (result.error) {
+    if (result.error.code === "ENOENT")
+      throw new Error(`Gitleaks binary not found (${gitleaks}). Install the pinned CI version or set GITLEAKS_BIN.`);
+    throw result.error;
+  }
   if (result.status !== 77) {
     console.error(result.stdout);
     console.error(result.stderr);
     throw new Error(`Expected Gitleaks to reject the API-key-shaped fixture; exit status was ${result.status}.`);
   }
   console.log("Gitleaks regression passed: credential-shaped fixture was rejected.");
+} catch (error) {
+  console.error(`Gitleaks regression failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  process.exitCode = 1;
 } finally {
   rmSync(fixtureDirectory, { recursive: true, force: true });
 }

@@ -146,18 +146,40 @@ command, target type and ID, risk, normalized facts, and payload. The database
 binds an idempotency key to that fingerprint, so a retry with changed risk,
 facts, or target is rejected instead of reusing a prior low-risk decision.
 
+The beta compatibility read surface does not accept opaque organization or
+campaign IDs as authority: its former tenantless partner and campaign reads
+are retired. Private support reads require the identity-bound MCP tools and an
+exact requester email, while donor status remains limited to its donor-safe
+public identifier response.
+
 Partner invitation email is an identifier-only outbox event. The Worker
 resolves the recipient from the private invitation at delivery time and never
 places an address or privileged credential in the event payload. An uninvited
 partner magic-link request cannot create an Auth identity or organization
 membership; activation still requires a matching active invitation.
 
+Outbound agent-message journal rows are constrained to a canonical
+`@donatebymail.org` sender identity at the database boundary. This prevents a
+connector or compromised provider callback from making an external mailbox
+look like an approved Donate by Mail sender in the audit trail; inbound
+provider identities remain external and are validated by their separate
+provenance path.
+
 ### Event delivery
 
 Retries can duplicate email or external effects, while an email outage can hide
 a donation if persistence depends on delivery. The transaction commits business
 state and an outbox item first. Handlers are idempotent, leased, bounded, and
-redacted; failures become visible without discarding the business record.
+redacted; failures become visible without discarding the business record. The
+multi-recipient Worker handler records a separate successful receipt for each
+recipient, so a retry does not resend a donor message after only the
+administrator delivery failed. Brevo receives a deterministic UUID-shaped
+idempotency key for each event/recipient pair. This is still an at-least-once
+boundary: a process crash after provider acceptance but before the receipt
+write can produce a duplicate after Brevo's idempotency window expires. The
+outbox/reconciliation view must therefore remain the operational source of
+truth, and delivery confirmation is not claimed until the provider result and
+recipient receipt are both recorded.
 
 ### Financial corrections and partner authority
 

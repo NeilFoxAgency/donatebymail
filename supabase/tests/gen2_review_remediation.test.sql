@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(53);
+select plan(60);
 select set_config('request.jwt.claim.role','service_role',true);
 
 select has_table('app_private','auth_login_attempts','server-side cross-device PKCE state exists');
@@ -10,6 +10,15 @@ select has_table('app_private','organization_charities','verified organization-c
 select has_table('app_private','cost_allocation_applications','cost allocation evidence exists');
 select is(has_table_privilege('authenticated','app_private.auth_login_attempts','select'),false,'browser roles cannot read PKCE verifier state');
 select is(has_function_privilege('anon','api.claim_donation(uuid,uuid,text)','execute'),false,'claims are Worker-only RPCs');
+select is(has_function_privilege('anon','api.get_donation_charity(uuid)','execute'),false,'donation charity snapshots are not public RPCs');
+select is(has_function_privilege('authenticated','api.get_donation_charity(uuid)','execute'),false,'authenticated browsers cannot read service donation snapshots');
+select is(has_function_privilege('service_role','api.get_donation_charity(uuid)','execute'),true,'the Worker service can read canonical donation charity snapshots');
+select is((select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='app_private' and has_function_privilege('anon',p.oid,'execute')),0::bigint,
+  'anonymous callers cannot execute internal app_private functions');
+select is((select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='app_private' and has_function_privilege('authenticated',p.oid,'execute')),0::bigint,
+  'authenticated callers cannot execute internal app_private functions');
 
 select lives_ok($$select api.create_auth_login_attempt(repeat('a',64),'/account','{"pkce":"server-only"}',now()+interval '10 minutes')$$,
   'cross-device PKCE state can be persisted by the BFF');
@@ -87,8 +96,12 @@ insert into app_private.proceeds_policy_assignments(policy_version_id,scope,scop
 values('93000000-0000-4000-8000-000000000011','campaign',(select id from app_private.campaigns where slug='verified-campaign'),100,'2026-01-01');
 create temporary table campaign_payload(payload jsonb);
 insert into campaign_payload values(
-  '{"clientSubmissionKey":"93000000-0000-4000-8000-000000000050","shippingMethod":"label","donor":{"firstName":"Campaign","middleName":"","lastName":"Donor","email":"campaign@example.com","address1":"1 Main","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Verified Charity"},"devices":[{"id":"c1","brand":"Apple","model":"A","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb);
+  '{"clientSubmissionKey":"93000000-0000-4000-8000-000000000050","shippingMethod":"label","donor":{"firstName":"Campaign","middleName":"","lastName":"Donor","email":"campaign@example.com","address1":"1 Main","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Untrusted presentation label"},"devices":[{"id":"c1","brand":"Apple","model":"A","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb);
 create temporary table campaign_donation as select api.create_donation(payload,gen_random_uuid(),gen_random_uuid(),repeat('7',64),'verified-campaign') result from campaign_payload;
+select is((select selected_charity_name from app_private.donations where id=(select (result->>'donationId')::uuid from campaign_donation)),
+  'Verified Charity','donation stores the verified charity canonical name rather than the widget label');
+select is(api.get_donation_charity((select (result->>'donationId')::uuid from campaign_donation))->>'name',
+  'Verified Charity','donation charity read model returns the verified canonical name');
 select isnt((select campaign_id from app_private.donations where id=(select (result->>'donationId')::uuid from campaign_donation)),null,'valid campaign attribution commits with donation creation');
 select is((select policy_version_snapshot_id from app_private.donations where id=(select (result->>'donationId')::uuid from campaign_donation)),
   '93000000-0000-4000-8000-000000000011'::uuid,'campaign-specific policy resolves in the creation transaction');
@@ -106,7 +119,7 @@ select throws_ok($$select api.create_donation((select payload||'{"clientSubmissi
 select is((select count(*) from app_private.donations where client_submission_key in
   ('93000000-0000-4000-8000-000000000051','93000000-0000-4000-8000-000000000052')),0::bigint,'failed campaign validation leaves no generic donation');
 select is((select count(*) from app_private.audit_events where action_name='donation.submit'
-  and metadata->>'environment'='beta' and redacted_changes ? 'campaign_id')>0,true,'campaign attribution is audited in the same transaction');
+  and metadata->>'environment' is null and redacted_changes ? 'campaign_id')>0,true,'campaign attribution is audited in the same transaction');
 create temporary table finance_donation as select api.create_donation(
   '{"clientSubmissionKey":"93000000-0000-4000-8000-000000000099","shippingMethod":"label","donor":{"firstName":"Finance","middleName":"","lastName":"Test","email":"finance@example.com","address1":"1 Main","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"3685b542-61d5-45da-9580-162dca725966","name":"Verified Charity"},"devices":[{"id":"f1","brand":"Apple","model":"A","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true},{"id":"f2","brand":"Google","model":"B","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb,
   gen_random_uuid(),gen_random_uuid(),repeat('6',64),null) result;

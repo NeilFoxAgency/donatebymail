@@ -3,7 +3,11 @@
   "name": "donate-by-mail",
   "compatibility_date": "2026-08-07",
   "main": "src/agentWorker.ts",
-  "workers_dev": true,
+  // Production must be reachable only through the verified custom domains.
+  // Keeping workers.dev enabled would create an alternate origin that could
+  // bypass custom-domain routing, cache, and hostname-bound release checks.
+  "workers_dev": false,
+  "preview_urls": false,
   "routes": [
     {
       "pattern": "donatebymail.org",
@@ -18,14 +22,41 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"],
+    "run_worker_first": [
+      "/*",
+      "!/*.js",
+      "!/*.css",
+      "!/*.map",
+      "!/*.png",
+      "!/*.jpg",
+      "!/*.jpeg",
+      "!/*.webp",
+      "!/*.svg",
+      "!/*.ico",
+      "!/*.woff",
+      "!/*.woff2",
+      "!/resources/*",
+      "!/assets/*"
+    ],
   },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
   },
   "secrets": {
-    "required": ["BREVO_API_KEY"],
+    "required": [
+      "BREVO_API_KEY",
+      "PLEDGE_API_KEY",
+      "SUPABASE_URL",
+      "SUPABASE_PUBLISHABLE_KEY",
+      "SUPABASE_SECRET_KEY",
+      "DONATION_TRACKING_SECRET",
+      "BFF_SESSION_SECRET",
+      "TURNSTILE_SECRET_KEY",
+    ],
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"],
   },
   "vars": {
     "DEPLOYMENT_ENVIRONMENT": "production",
@@ -37,11 +68,27 @@
   "env": {
     "beta": {
       "workers_dev": false,
+      "preview_urls": false,
       "assets": {
         "directory": "./dist",
         "binding": "ASSETS",
         "not_found_handling": "single-page-application",
-        "run_worker_first": true,
+        "run_worker_first": [
+          "/*",
+          "!/*.js",
+          "!/*.css",
+          "!/*.map",
+          "!/*.png",
+          "!/*.jpg",
+          "!/*.jpeg",
+          "!/*.webp",
+          "!/*.svg",
+          "!/*.ico",
+          "!/*.woff",
+          "!/*.woff2",
+          "!/resources/*",
+          "!/assets/*"
+        ],
       },
       "routes": [
         {
@@ -58,6 +105,10 @@
         },
         {
           "pattern": "mcp-oauth-beta.donatebymail.org",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "mcp-operations-connector-beta.donatebymail.org",
           "custom_domain": true,
         },
       ],

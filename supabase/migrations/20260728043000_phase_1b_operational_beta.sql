@@ -374,7 +374,7 @@ begin
     jsonb_build_object(
       'device_count', jsonb_array_length(payload -> 'devices'),
       'marketing_email_consent', coalesce((donor ->> 'marketingEmailConsent')::boolean, false)
-    ), jsonb_build_object('environment', 'beta', 'pii_redacted', true)
+    ), jsonb_build_object('pii_redacted', true)
   );
 
   insert into app_private.domain_events (
@@ -682,7 +682,7 @@ begin
     'donation', candidate_donation_id, 'physical_package_received',
     jsonb_build_object('status', jsonb_build_object('from', current_status, 'to', 'received'),
       'device_receipts_recorded', changed_count),
-    jsonb_build_object('environment', 'beta', 'package_condition_redacted', true)
+    jsonb_build_object('package_condition_redacted', true)
   );
   insert into app_private.domain_events (
     event_type, aggregate_type, aggregate_id, aggregate_version, payload
@@ -755,7 +755,7 @@ begin
     jsonb_build_object('inspection_status', next_inspection,
       'processing_status', next_processing, 'data_wipe_status', next_wipe,
       'assessed_value_recorded', next_value is not null),
-    jsonb_build_object('environment', 'beta', 'sensitive_identifiers_redacted', true)
+    jsonb_build_object('sensitive_identifiers_redacted', true)
   );
   return jsonb_build_object('ok', true);
 end;
@@ -795,7 +795,7 @@ begin
   ) values (
     'staff', actor_user_id::text, 'donation.add_unexpected_device',
     'donation_device', device_id, 'physical_device_found',
-    jsonb_build_object('source', 'unexpected'), jsonb_build_object('environment', 'beta')
+    jsonb_build_object('source', 'unexpected'), '{}'::jsonb
   );
   return jsonb_build_object('ok', true, 'deviceId', device_id);
 end;
@@ -843,7 +843,7 @@ begin
     candidate_donation_id, 'staff_status_update',
     jsonb_build_object('status', jsonb_build_object('from', old_status, 'to', new_status),
       'donor_visible_message', public_message is not null),
-    jsonb_build_object('environment', 'beta', 'message_redacted', true)
+    jsonb_build_object('message_redacted', true)
   );
   insert into app_private.domain_events (
     event_type, aggregate_type, aggregate_id, aggregate_version, payload
@@ -887,7 +887,7 @@ begin
   ) values (
     'staff', actor_user_id::text, 'donation.add_internal_note', 'donation_note',
     note_id, 'staff_operational_note', jsonb_build_object('note_added', true),
-    jsonb_build_object('environment', 'beta', 'content_redacted', true,
+    jsonb_build_object('content_redacted', true,
       'donation_id', candidate_donation_id)
   );
   return jsonb_build_object('ok', true, 'noteId', note_id);

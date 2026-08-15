@@ -80,7 +80,7 @@ the local advisor and migration lint runs report no warning-level issues.
 
 1. Deploy this branch on `donatebymail.org` through Cloudflare. Do not submit the AppDeploy preview domain.
 2. Enforce HTTPS and redirect all HTTP requests to HTTPS.
-3. Confirm `satoshi@donatebymail.org` is monitored, or replace `VITE_CONTACT_EMAIL` and the static-page contact text before launch.
+3. Confirm `tre@donatebymail.org` is monitored, or replace `VITE_CONTACT_EMAIL` and the static-page contact text before launch.
 4. Confirm donor-paid mailing instructions and the headquarters address label work consistently before sending large paid-traffic volumes.
 5. Configure GA4, test consent and conversion events, mark a meaningful completed action as a key event, and import it into Google Ads.
 6. Verify Google for Nonprofits eligibility through Goodstack.

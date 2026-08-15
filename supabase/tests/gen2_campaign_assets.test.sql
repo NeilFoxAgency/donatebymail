@@ -31,12 +31,12 @@ select lives_ok($$select api.partner_create_campaign(
   'partner creates a campaign eligible for controlled assets');
 
 create temporary table asset_fixture as
-select (api.partner_create_campaign_asset(
+select (api.partner_register_campaign_asset(
   'a4000000-0000-4000-8000-000000000001',
   (select id from app_private.campaigns where slug='asset-campaign'),
   'hero_image',
   'campaigns/'||(select id::text from app_private.campaigns where slug='asset-campaign')||'/'||gen_random_uuid()||'.webp',
-  'image/webp',12345,'Asset campaign hero image',false,repeat('a',64))) result;
+  'image/webp',12345,1200,630,'Asset campaign hero image',false,repeat('a',64))) result;
 select isnt((select result->>'id' from asset_fixture),null,'valid controlled asset metadata is persisted');
 select is((select length((select result->>'contentSha256' from asset_fixture))),64,'asset stores a SHA-256 digest');
 select is((select (result->>'contentSha256') <> repeat('0',64) from asset_fixture),true,'asset digest is not the legacy all-zero marker');

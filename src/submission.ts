@@ -1,15 +1,17 @@
 import type { SelectedCharity } from "./pledge";
+import { ISO_COUNTRY_CODES } from "./countries";
 export type Brand = "Apple" | "Samsung" | "Google" | "Motorola" | "Other";
 export type Age = "0-1 year" | "2-3 years" | "4-5 years" | "6+ years";
 export type Condition = "Excellent" | "Good" | "Fair" | "Damaged";
 export type Storage = "64 GB or less" | "128 GB" | "256 GB" | "512 GB+";
-export type ShippingMethod = "label" | "kit";
+export type ShippingMethod = "label";
 export const DONATE_BY_MAIL_ADDRESS = [
   "Donate By Mail",
   "4103 Tropical Isle Blvd, Apt 124",
   "Kissimmee, FL 34741",
 ] as const;
 export const DONATE_BY_MAIL_ADDRESS_TEXT = DONATE_BY_MAIL_ADDRESS.join("\n");
+export const MAX_DONATION_DEVICES = 20;
 export type Device = {
   id: string;
   brand: Brand;
@@ -47,8 +49,34 @@ export type DonationSubmission = {
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BRANDS: readonly Brand[] = ["Apple", "Samsung", "Google", "Motorola", "Other"];
+const AGES: readonly Age[] = ["0-1 year", "2-3 years", "4-5 years", "6+ years"];
+const CONDITIONS: readonly Condition[] = ["Excellent", "Good", "Fair", "Damaged"];
+const STORAGE_VALUES: readonly Storage[] = ["64 GB or less", "128 GB", "256 GB", "512 GB+"];
+const COUNTRY_CODES = new Set(ISO_COUNTRY_CODES);
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+]);
 const isObject = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v);
+const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]) =>
+  Object.keys(value).every((key) => allowed.includes(key));
+const boundedText = (value: unknown, maximum: number, required = false): value is string =>
+  typeof value === "string" && value.length <= maximum && (!required || value.trim().length > 0);
+const optionalText = (value: unknown, maximum: number): value is string | undefined =>
+  value === undefined || boundedText(value, maximum);
+const optionalUrl = (value: unknown): value is string | undefined => {
+  if (value === undefined) return true;
+  if (typeof value !== "string" || value.length > 1000 || !/^https:\/\/[^\s<>"']+$/i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
+const oneOf = <T extends string>(value: unknown, values: readonly T[]): value is T =>
+  typeof value === "string" && values.includes(value as T);
 export function validateDonationSubmission(
   value: unknown,
 ): value is DonationSubmission {
@@ -56,64 +84,71 @@ export function validateDonationSubmission(
     return false;
   const donor = value.donor,
     charity = value.charity;
+  if (!hasOnlyKeys(value, ["id", "clientSubmissionKey", "createdAt", "donor", "shippingMethod", "devices", "charity", "campaignSlug"])
+    || !hasOnlyKeys(donor, ["firstName", "middleName", "lastName", "email", "address1", "address2", "city", "state", "zip", "country", "marketingEmailConsent", "marketingConsentAt"])
+    || !hasOnlyKeys(charity, ["pledgeId", "name", "ein", "city", "state", "country", "logoUrl", "websiteUrl"]))
+    return false;
   if (
-    typeof value.id !== "string" ||
+    !boundedText(value.id, 80, true) ||
     !value.id.startsWith("DBM-") ||
     typeof value.clientSubmissionKey !== "string" ||
     !UUID.test(value.clientSubmissionKey) ||
-    typeof value.createdAt !== "string" ||
+    !boundedText(value.createdAt, 80, true) ||
     Number.isNaN(Date.parse(value.createdAt)) ||
     !Array.isArray(value.devices) ||
     value.devices.length < 1 ||
-    value.devices.length > 20 ||
-    (value.shippingMethod !== "label" && value.shippingMethod !== "kit")
+    value.devices.length > MAX_DONATION_DEVICES ||
+    value.shippingMethod !== "label"
   )
     return false;
   if (value.campaignSlug !== undefined &&
-      (typeof value.campaignSlug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.campaignSlug)))
+      (!boundedText(value.campaignSlug, 120, true) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.campaignSlug)))
     return false;
   if (
-    typeof donor.firstName !== "string" ||
-    !donor.firstName.trim() ||
-    typeof donor.middleName !== "string" ||
-    typeof donor.lastName !== "string" ||
-    !donor.lastName.trim() ||
-    typeof donor.email !== "string" ||
+    !boundedText(donor.firstName, 120, true) ||
+    !boundedText(donor.middleName, 120) ||
+    !boundedText(donor.lastName, 120, true) ||
+    !boundedText(donor.email, 320, true) ||
     !EMAIL.test(donor.email) ||
-    typeof donor.address1 !== "string" ||
-    !donor.address1.trim() ||
-    typeof donor.city !== "string" ||
-    !donor.city.trim() ||
-    typeof donor.country !== "string" ||
+    !boundedText(donor.address1, 240, true) ||
+    !boundedText(donor.address2, 240) ||
+    !boundedText(donor.city, 160, true) ||
+    !boundedText(donor.country, 2, true) ||
     !/^[A-Z]{2}$/.test(donor.country) ||
-    typeof donor.state !== "string" ||
-    typeof donor.zip !== "string" ||
+    !COUNTRY_CODES.has(donor.country) ||
+    !boundedText(donor.state, 160) ||
+    !boundedText(donor.zip, 32) ||
     (donor.country === "US" &&
-      (donor.state.length !== 2 || !/^\d{5}(?:-\d{4})?$/.test(donor.zip))) ||
+      (donor.state.length !== 2 || !US_STATE_CODES.has(donor.state) || !/^\d{5}(?:-\d{4})?$/.test(donor.zip))) ||
     typeof donor.marketingEmailConsent !== "boolean" ||
     (donor.marketingConsentAt !== undefined &&
-      (typeof donor.marketingConsentAt !== "string" ||
+      (typeof donor.marketingConsentAt !== "string" || donor.marketingConsentAt.length > 80 ||
         Number.isNaN(Date.parse(donor.marketingConsentAt))))
   )
     return false;
   if (
+    !boundedText(charity.name, 240, true) ||
     typeof charity.pledgeId !== "string" ||
     !UUID.test(charity.pledgeId) ||
-    typeof charity.name !== "string" ||
-    !charity.name.trim()
+    !optionalText(charity.ein, 32) ||
+    !optionalText(charity.city, 160) ||
+    !optionalText(charity.state, 160) ||
+    !optionalText(charity.country, 2) ||
+    !optionalUrl(charity.websiteUrl) ||
+    !optionalUrl(charity.logoUrl)
   )
     return false;
-  return value.devices.every(
-    (device) =>
-      isObject(device) &&
-      typeof device.id === "string" &&
-      typeof device.brand === "string" &&
-      typeof device.age === "string" &&
-      typeof device.condition === "string" &&
-      typeof device.storage === "string" &&
-      typeof device.powersOn === "boolean" &&
-      typeof device.unlocked === "boolean",
-  );
+  const deviceIds = new Set<string>();
+  return value.devices.every((device) => {
+    if (!isObject(device) || !hasOnlyKeys(device, ["id", "brand", "model", "age", "condition", "storage", "powersOn", "unlocked"])
+      || !boundedText(device.id, 120, true) || deviceIds.has(device.id)
+      || !oneOf(device.brand, BRANDS) || !boundedText(device.model, 160)
+      || !oneOf(device.age, AGES) || !oneOf(device.condition, CONDITIONS)
+      || !oneOf(device.storage, STORAGE_VALUES)
+      || typeof device.powersOn !== "boolean" || typeof device.unlocked !== "boolean") return false;
+    deviceIds.add(device.id);
+    return true;
+  });
 }
 export const charityLocation = (charity: SelectedCharity) =>
   [charity.city, charity.state, charity.country].filter(Boolean).join(", ") ||
@@ -158,9 +193,9 @@ export function buildAdministratorNotification(record: DonationSubmission) {
   ].join("\n");
 }
 
-export function buildBetaAdministratorNotification(record: DonationSubmission, staffUrl: string) {
+export function buildRedactedAdministratorNotification(record: DonationSubmission, staffUrl: string) {
   return [
-    "New beta phone donation",
+    "New Donate by Mail phone donation",
     "",
     `Donation ID: ${record.id}`,
     `Selected charity: ${record.charity.name}`,
@@ -169,6 +204,11 @@ export function buildBetaAdministratorNotification(record: DonationSubmission, s
     `Open the authenticated staff workspace: ${staffUrl}`,
   ].join("\n");
 }
+
+// Kept as a compatibility export for the beta fixture contract. The message
+// itself is environment-neutral because the same redacted notification is
+// used by the production outbox after the production cutover.
+export const buildBetaAdministratorNotification = buildRedactedAdministratorNotification;
 
 export function buildDonorConfirmation(record: DonationSubmission): string {
   return [

@@ -17,12 +17,22 @@ export const analyticsEnabled = Boolean(measurementId);
 
 export function getAnalyticsConsent(): 'granted' | 'denied' | null {
   if (!analyticsEnabled) return 'denied';
-  const value = window.localStorage.getItem(consentKey);
-  return value === 'granted' || value === 'denied' ? value : null;
+  try {
+    const value = window.localStorage.getItem(consentKey);
+    return value === 'granted' || value === 'denied' ? value : null;
+  } catch {
+    // Optional analytics must never break the donor workflow when browser
+    // storage is disabled (for example, private browsing or strict policies).
+    return null;
+  }
 }
 
 export function setAnalyticsConsent(value: 'granted' | 'denied') {
-  window.localStorage.setItem(consentKey, value);
+  try {
+    window.localStorage.setItem(consentKey, value);
+  } catch {
+    return;
+  }
   if (value === 'granted') initializeAnalytics();
 }
 

@@ -52,6 +52,7 @@ describe("submission and notification", () => {
     const message = buildBetaAdministratorNotification(submission, "https://beta.donatebymail.org/staff");
     expect(message).not.toContain(submission.donor.email);
     expect(message).not.toContain(submission.donor.address1);
+    expect(message.split("\n", 1)[0]).not.toContain("beta");
     expect(message).toContain(submission.id);
   });
   it("rejects no charity", () => {
@@ -72,6 +73,12 @@ describe("submission and notification", () => {
       pledgeId: "ec0b21fc-2671-431e-8a81-783b7a9626c9",
     });
   });
+  it("accepts a Pledge selection before optional charity metadata is enriched", () => {
+    expect(validateDonationSubmission({
+      ...submission,
+      charity: { pledgeId: submission.charity.pledgeId, name: submission.charity.name },
+    })).toBe(true);
+  });
   it("accepts international addresses without a U.S. state or ZIP", () => {
     expect(
       validateDonationSubmission({
@@ -87,6 +94,11 @@ describe("submission and notification", () => {
       }),
     ).toBe(true);
   });
+  it("accepts only canonical countries and U.S. state codes", () => {
+    expect(validateDonationSubmission(submission)).toBe(true);
+    expect(validateDonationSubmission({ ...submission, donor: { ...submission.donor, country: "ZZ" } })).toBe(false);
+    expect(validateDonationSubmission({ ...submission, donor: { ...submission.donor, state: "XX" } })).toBe(false);
+  });
   it("requires the new split name, country, and consent record", () => {
     expect(
       validateDonationSubmission({
@@ -100,6 +112,23 @@ describe("submission and notification", () => {
         donor: { ...submission.donor, marketingEmailConsent: undefined },
       }),
     ).toBe(false);
+  });
+  it("rejects unsupported shipping, malformed email, and unbounded device values", () => {
+    expect(validateDonationSubmission({ ...submission, shippingMethod: "kit" })).toBe(false);
+    expect(validateDonationSubmission({ ...submission, donor: { ...submission.donor, email: "name donor@example.com" } })).toBe(false);
+    expect(validateDonationSubmission({ ...submission, devices: [{ ...submission.devices[0], brand: "Unknown" }] })).toBe(false);
+    expect(validateDonationSubmission({ ...submission, devices: [{ ...submission.devices[0] }, { ...submission.devices[0] }] })).toBe(false);
+  });
+  it("rejects unknown request fields before hashing or persistence", () => {
+    expect(validateDonationSubmission({ ...submission, unexpected: { nested: "value" } })).toBe(false);
+    expect(validateDonationSubmission({
+      ...submission,
+      donor: { ...submission.donor, unexpected: "value" },
+    })).toBe(false);
+    expect(validateDonationSubmission({
+      ...submission,
+      devices: [{ ...submission.devices[0], unexpected: "value" }],
+    })).toBe(false);
   });
   it("formats the admin notice", () => {
     const notice = buildAdministratorNotification(submission);
@@ -138,5 +167,6 @@ describe("submission and notification", () => {
     ].join("\n");
     expect(frontend).not.toContain("PLEDGE_API_KEY");
     expect(frontend).not.toMatch(/Authorization:\s*Bearer/i);
+    expect(frontend).not.toContain('meta name="pledge-partner-key"');
   });
 });

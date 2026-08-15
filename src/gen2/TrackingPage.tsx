@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { publicApi } from "./AuthSession";
 
 type StatusData = {
@@ -14,19 +14,31 @@ type StatusData = {
 export function TrackingPage() {
   const [donation, setDonation] = useState<StatusData | null>(null);
   const [message, setMessage] = useState("Loading your donation status…");
+  const mountedRef = useRef(false);
+  const requestStartedRef = useRef(false);
   useEffect(() => {
+    mountedRef.current = true;
+    if (requestStartedRef.current) return () => { mountedRef.current = false; };
+    requestStartedRef.current = true;
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const query = new URLSearchParams(window.location.search);
     const publicId = hash.get("id") || query.get("id") || "";
     const token = hash.get("token") || "";
-    if (window.location.hash) window.history.replaceState({}, "", publicId ? `/track?id=${encodeURIComponent(publicId)}` : "/track");
-    if (!publicId || !token) { setMessage("Open the secure tracking link from your donation email."); return; }
+    if (!publicId || !token) {
+      setMessage("Open the secure tracking link from your donation email.");
+      return () => { mountedRef.current = false; };
+    }
     publicApi<{ donation?: StatusData }>("/api/donations/status", {
       method: "POST", body: JSON.stringify({ publicId, token }),
     }).then((body) => {
       if (!body.donation) throw new Error("Status unavailable.");
+      if (!mountedRef.current) return;
       setDonation(body.donation); setMessage("");
-    }).catch((error: Error) => setMessage(error.message));
+      // Keep the capability available for a retry if the request failed. Once
+      // the server has returned the status, remove it from the visible URL.
+      if (window.location.hash) window.history.replaceState({}, "", `/track?id=${encodeURIComponent(publicId)}`);
+    }).catch((error: Error) => { if (mountedRef.current) setMessage(error.message); });
+    return () => { mountedRef.current = false; };
   }, []);
   return <main className="operations-main">
     <section className="operations-shell">

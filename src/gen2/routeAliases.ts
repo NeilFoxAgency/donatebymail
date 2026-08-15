@@ -44,7 +44,7 @@ export type VanityAliasValidation =
 
 export function validateVanityAlias(pathOrSlug: string): VanityAliasValidation {
   const slug = pathOrSlug.trim().replace(/^\/+|\/+$/g, "").toLowerCase();
-  if (!VANITY_SLUG_PATTERN.test(slug))
+  if (slug.length > 120 || !VANITY_SLUG_PATTERN.test(slug))
     return { valid: false, slug, reason: "invalid_format" };
   if (RESERVED_ROOT_SLUGS.has(slug))
     return { valid: false, slug, reason: "reserved" };

@@ -10,6 +10,13 @@ const get = (html, pattern) => html.match(pattern)?.[1]?.trim() || "";
 
 for (const file of htmlFiles) {
   const html = readFileSync(resolve(directory, file), "utf8");
+  // Vite entry shells are also the fallback document for nested SPA routes.
+  // A relative module or shared-shell URL would resolve to /articles/assets/*
+  // or /articles/site-shell.js and leave crawlers and donors on a blank shell.
+  if (directory.endsWith("/dist") && ["index.html", "donate-phone.html", "articles.html"].includes(file)
+    && /(?:src|href)=["']\.\//i.test(html)) {
+    failures.push(`${file}: generated entry shell contains a relative asset URL`);
+  }
   const title = get(html, /<title[^>]*>([^<]*)<\/title>/i);
   const description = get(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i);
   const canonical = get(html, /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']*)["']/i);

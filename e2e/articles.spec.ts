@@ -12,8 +12,12 @@ const article = {
   contentBlocks: [
     { type: "heading", level: 2, text: "Before you mail" },
     { type: "paragraph", text: "Back up and sign out before sending your phone." },
-    { type: "list", items: ["Back up your photos", "Remove account locks"] },
+    { type: "list", ordered: true, items: ["Back up your photos", "Remove account locks"] },
+    { type: "list", items: [{ unexpected: "object" }] },
     { type: "link", label: "Prepare your phone", href: "/prepare-phone.html" },
+    // This simulates an older or compromised revision. The client must not
+    // turn a protocol-relative URL into an external navigation target.
+    { type: "link", label: "Unsafe external link", href: "//attacker.example/collect" },
   ],
   contentHash: "a".repeat(64), revisionId: "00000000-0000-4000-8000-000000000102", version: 1,
 };
@@ -28,13 +32,23 @@ test.describe("editorial article surface", () => {
   });
 
   test("lists and renders typed article blocks with metadata", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto("/articles");
     await expect(page.getByRole("heading", { name: "Blog" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Phone data basics" })).toBeVisible();
     await page.getByRole("link", { name: "Phone data basics" }).click();
     await expect(page).toHaveURL(/\/articles\/phone-data-basics$/);
     await expect(page.getByRole("heading", { name: "Before you mail" })).toBeVisible();
+    const nestedAssetUrls = await page.locator("script[src], link[href]").evaluateAll((elements) => elements
+      .map((element) => element.getAttribute("src") || element.getAttribute("href") || "")
+      .filter((value) => value && !value.startsWith("/") && !/^https?:\/\//i.test(value) && !value.startsWith("#") && !value.startsWith("mailto:")));
+    expect(nestedAssetUrls, "nested routes must use root-relative or absolute asset URLs").toEqual([]);
+    expect(pageErrors, "nested article routes must not fail to load their shell assets").toEqual([]);
+    await expect(page.locator("ol").filter({ hasText: "Back up your photos" })).toHaveCount(1);
     await expect(page.getByText("<script>", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Unsafe external link", { exact: true })).toHaveCount(0);
+    await expect(page.locator('a[href^="//"]')).toHaveCount(0);
     await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", article.seoDescription);
     await expect(page.locator('script[data-article-structured-data="true"]')).toHaveCount(1);
   });
@@ -61,7 +75,11 @@ test.describe("editorial article surface", () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await page.getByRole("button", { name: "Open menu" }).click();
+    const menuButton = page.getByRole("button", { name: "Open menu" });
+    await expect(menuButton).toHaveAttribute("aria-controls", "mobile-navigation");
+    await expect(page.locator("#mobile-navigation")).toBeHidden();
+    await menuButton.click();
+    await expect(page.locator("#mobile-navigation")).toBeVisible();
     await expect(page.getByRole("link", { name: "Donate a phone" }).last()).toBeVisible();
     await page.getByText("More", { exact: true }).last().click();
     await expect(page.getByRole("link", { name: "Blog" }).last()).toBeVisible();

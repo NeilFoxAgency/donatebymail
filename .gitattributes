@@ -1,0 +1,4 @@
+# Wrangler's generated runtime declarations intentionally contain trailing
+# spaces in a few type-alias continuations. Do not treat those generated lines
+# as hand-authored whitespace defects in release checks.
+worker-configuration.d.ts whitespace=-trailing-space
