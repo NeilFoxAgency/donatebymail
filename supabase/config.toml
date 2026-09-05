@@ -154,6 +154,9 @@ max_indexes = 5
 
 [auth]
 enabled = true
+# This local config is intentionally beta-only. Production is a separate
+# Supabase project and must use the exact remote URL configuration checked by
+# scripts/check-production-auth-config.mjs; do not promote these values.
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
 site_url = "https://beta.donatebymail.org"
@@ -163,10 +166,13 @@ site_url = "https://beta.donatebymail.org"
 additional_redirect_urls = [
   "https://beta.donatebymail.org",
   "https://beta.donatebymail.org/auth/callback",
+  "https://beta.donatebymail.org/auth/confirm",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5173/auth/callback",
+  "http://127.0.0.1:5173/auth/confirm",
   "http://localhost:5173",
   "http://localhost:5173/auth/callback",
+  "http://localhost:5173/auth/confirm",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -255,6 +261,10 @@ sender_name = "Donate by Mail Beta"
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your secure Donate by Mail sign-in link"
+content_path = "./supabase/templates/magic-link.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

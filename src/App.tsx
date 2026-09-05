@@ -19,9 +19,11 @@ import {
 } from "lucide-react";
 import {
   getPledgeWidgetConfig,
+  isPledgeUuid,
   mergeCharityDetails,
   parsePledgeMessage,
   pledgeSelectionReducer,
+  resolvePledgeEnvironment,
   type PledgeEnvironment,
   type SelectedCharity,
 } from "./pledge";
@@ -32,6 +34,7 @@ import {
   describeDevice,
   DONATE_BY_MAIL_ADDRESS,
   donorFullName,
+  MAX_DONATION_DEVICES,
   type Age,
   type Brand,
   type Condition,
@@ -47,9 +50,17 @@ import { StaffPage } from "./gen2/StaffPage";
 import { DonorAccountPage } from "./gen2/DonorAccountPage";
 import { PartnerPage } from "./gen2/PartnerPage";
 import { CampaignPage } from "./gen2/CampaignPage";
+import { PartnerApplicationPage } from "./gen2/PartnerApplicationPage";
+import { NonprofitPage } from "./gen2/NonprofitPage";
+import { CampaignFlyerPage } from "./gen2/CampaignFlyerPage";
+import { AuthConfirmPage } from "./gen2/AuthConfirmPage";
+import { MfaChallengePage } from "./gen2/MfaPage";
 import { AccountGatewayPage, AccountSettingsPage } from "./gen2/AccountGatewayPage";
 import { ArticlesPage } from "./gen2/ArticlesPage";
+import { TURNSTILE_SITE_KEY, TurnstileWidget } from "./gen2/TurnstileWidget";
+import { publicApi, sessionStatus } from "./gen2/AuthSession";
 import { trackEvent } from "./analytics";
+import { safePrivateAssetUrl } from "./gen2/urlSafety";
 type SubmissionResponse = {
   ok: boolean;
   message?: string;
@@ -60,26 +71,6 @@ type SubmissionResponse = {
   notificationPending?: boolean;
 };
 
-type TurnstileApi = {
-  render: (container: HTMLElement, options: {
-    sitekey: string;
-    action: string;
-    callback: (token: string) => void;
-    "expired-callback": () => void;
-    "error-callback": () => void;
-  }) => string;
-  reset: (widgetId?: string) => void;
-  remove: (widgetId: string) => void;
-};
-
-declare global {
-  interface Window {
-    turnstile?: TurnstileApi;
-  }
-}
-
-const TURNSTILE_SITE_KEY =
-  (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() || "";
 const brands: Brand[] = ["Apple", "Samsung", "Google", "Motorola", "Other"],
   ages: Age[] = ["0-1 year", "2-3 years", "4-5 years", "6+ years"],
   conditions: Condition[] = ["Excellent", "Good", "Fair", "Damaged"],
@@ -218,20 +209,74 @@ const blankDonor: DonorDetails = {
       maximumFractionDigits: 0,
     }).format(v),
   donationId = () =>
-    `DBM-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    `DBM-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 function getPartnerKey() {
-  return (
-    import.meta.env.VITE_PLEDGE_PARTNER_KEY?.trim() ||
-    document
-      .querySelector<HTMLMetaElement>('meta[name="pledge-partner-key"]')
-      ?.content.trim() ||
-    ""
-  );
+  return import.meta.env.VITE_PLEDGE_PARTNER_KEY?.trim() || "";
 }
 function getPledgeEnvironment(): PledgeEnvironment {
-  return import.meta.env.VITE_PLEDGE_ENV === "sandbox"
-    ? "sandbox"
-    : "production";
+  return resolvePledgeEnvironment(
+    import.meta.env.VITE_PLEDGE_ENV,
+    typeof window === "undefined" ? "" : window.location.hostname,
+  );
+}
+
+function safeCharityLogoUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const privateUrl = safePrivateAssetUrl(value, ["/api/campaign-assets/", "/api/nonprofit-assets/"]);
+  if (privateUrl) return privateUrl;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password
+      && (url.hostname === "res.cloudinary.com" || url.hostname === "pledgeling-res.cloudinary.com")) return url.toString();
+  } catch { /* Ignore an untrusted logo URL. */ }
+  return null;
+}
+
+function safeDraftDevice(value: unknown): value is Device {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const device = value as Record<string, unknown>;
+  if (!Object.keys(device).every((key) => ["id", "brand", "model", "age", "condition", "storage", "powersOn", "unlocked"].includes(key))) return false;
+  return typeof device.id === "string" && device.id.trim().length > 0 && device.id.length <= 120
+    && typeof device.model === "string" && device.model.length <= 160
+    && typeof device.brand === "string" && brands.includes(device.brand as Brand)
+    && typeof device.age === "string" && ages.includes(device.age as Age)
+    && typeof device.condition === "string" && conditions.includes(device.condition as Condition)
+    && typeof device.storage === "string" && storageOptions.includes(device.storage as Storage)
+    && typeof device.powersOn === "boolean" && typeof device.unlocked === "boolean";
+}
+
+function safeDraftCharity(value: unknown): value is SelectedCharity {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const charity = value as Record<string, unknown>;
+  if (!Object.keys(charity).every((key) => ["pledgeId", "name", "ein", "city", "state", "country", "logoUrl", "websiteUrl"].includes(key))) return false;
+  const optionalText = (candidate: unknown, maximum: number) => candidate === undefined || (typeof candidate === "string" && candidate.length <= maximum);
+  const optionalHttps = (candidate: unknown) => {
+    if (candidate === undefined) return true;
+    if (typeof candidate !== "string" || candidate.length > 1000 || !/^https:\/\/[^\s<>"']+$/i.test(candidate)) return false;
+    try {
+      const url = new URL(candidate);
+      return url.protocol === "https:" && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  };
+  return typeof charity.pledgeId === "string" && isPledgeUuid(charity.pledgeId)
+    && typeof charity.name === "string" && charity.name.trim().length > 0 && charity.name.length <= 240
+    && optionalText(charity.ein, 32) && optionalText(charity.city, 160)
+    && optionalText(charity.state, 160) && optionalText(charity.country, 2)
+    && optionalHttps(charity.logoUrl) && optionalHttps(charity.websiteUrl);
+}
+function sanitizeCampaignCharity(value: unknown): SelectedCharity | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.pledgeId !== "string" || !isPledgeUuid(raw.pledgeId)
+    || typeof raw.name !== "string" || !raw.name.trim()) return null;
+  const details: Partial<SelectedCharity> = { pledgeId: raw.pledgeId, name: raw.name };
+  for (const key of ["ein", "city", "state", "country", "logoUrl", "websiteUrl"] as const) {
+    if (raw[key] !== undefined) details[key] = raw[key] as never;
+  }
+  const sanitized = mergeCharityDetails({ pledgeId: raw.pledgeId, name: raw.name }, details);
+  return safeDraftCharity(sanitized) ? sanitized : null;
 }
 function resetPledgeScript() {
   document
@@ -272,83 +317,12 @@ function loadPledgeScript(url: string) {
   });
 }
 
-function loadTurnstileScript() {
-  return new Promise<void>((resolve, reject) => {
-    if (window.turnstile) return resolve();
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-dbm-turnstile-script="true"]',
-    );
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("load failed")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.async = true;
-    script.defer = true;
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-    script.dataset.dbmTurnstileScript = "true";
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener("error", () => reject(new Error("load failed")), { once: true });
-    document.head.appendChild(script);
-  });
-}
-
-function TurnstileWidget({
-  onToken,
-  onResetReady,
-}: {
-  onToken: (token: string) => void;
-  onResetReady: (reset: () => void) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const tokenRef = useRef(onToken);
-  tokenRef.current = onToken;
-  useEffect(() => {
-    if (!TURNSTILE_SITE_KEY || !containerRef.current) return;
-    let widgetId: string | null = null;
-    let disposed = false;
-    const reset = () => {
-      tokenRef.current("");
-      if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
-    };
-    onResetReady(reset);
-    void loadTurnstileScript()
-      .then(() => {
-        if (disposed || !containerRef.current || !window.turnstile) return;
-        widgetId = window.turnstile.render(containerRef.current, {
-          sitekey: TURNSTILE_SITE_KEY,
-          action: "donation_submit",
-          callback: (token) => tokenRef.current(token),
-          "expired-callback": () => tokenRef.current(""),
-          "error-callback": () => tokenRef.current(""),
-        });
-      })
-      .catch(() => tokenRef.current(""));
-    return () => {
-      disposed = true;
-      if (widgetId && window.turnstile) window.turnstile.remove(widgetId);
-    };
-  }, [onResetReady]);
-  if (!TURNSTILE_SITE_KEY) return null;
-  return (
-    <div className="turnstile-field" aria-label="Security verification">
-      <p>Security verification</p>
-      <div ref={containerRef} data-action="turnstile-spin-v1" />
-    </div>
-  );
-}
 
 async function fetchCharityDetails(charity: SelectedCharity) {
   try {
-    const response = await fetch(
-      `./api/pledge/organizations/${encodeURIComponent(charity.pledgeId)}`,
-      { headers: { accept: "application/json" } },
-    );
-    if (!response.ok) return charity;
-    const body = (await response.json()) as {
+    const body = await publicApi<{
       charity?: Partial<SelectedCharity>;
-    };
+    }>(`/api/pledge/organizations/${encodeURIComponent(charity.pledgeId)}`);
     return body.charity ? mergeCharityDetails(charity, body.charity) : charity;
   } catch {
     return charity;
@@ -358,23 +332,12 @@ async function sendDonation(
   record: DonationSubmission,
   turnstileToken = "",
 ): Promise<SubmissionResponse> {
-  const response = await fetch("/api/donations", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(
-        turnstileToken ? { ...record, turnstileToken } : record,
-      ),
-    }),
-    body = (await response.json().catch(() => ({}))) as SubmissionResponse;
-  if (!response.ok)
-    throw new Error(
-      body.message ||
-        "We could not send the donation packet. Please try again.",
-    );
-  return body;
+  return publicApi<SubmissionResponse>("/api/donations", {
+    method: "POST",
+    body: JSON.stringify(
+      turnstileToken ? { ...record, turnstileToken } : record,
+    ),
+  });
 }
 function DocumentLogo() {
   return (
@@ -438,10 +401,7 @@ function Header() {
     };
     document.addEventListener("pointerdown", closeOpenMenus);
     document.addEventListener("keydown", closeMenusOnEscape);
-    fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
-      .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
-      .then((body) => setSignedIn(Boolean(body.authenticated)))
-      .catch(() => setSignedIn(false));
+    void sessionStatus().then(setSignedIn);
     return () => {
       document.removeEventListener("pointerdown", closeOpenMenus);
       document.removeEventListener("keydown", closeMenusOnEscape);
@@ -475,14 +435,17 @@ function Header() {
             {open ? "Close" : "Menu"}
           </button>
         </div>
-        {open && (
-          <nav id="mobile-navigation" className="mobile-nav" aria-label="Mobile navigation">
-            <PrimaryLink />
-            {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
-            <MoreMenu />
-            <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
-          </nav>
-        )}
+        <nav
+          id="mobile-navigation"
+          className="mobile-nav"
+          aria-label="Mobile navigation"
+          hidden={!open}
+        >
+          <PrimaryLink />
+          {visibleLinks.map(([label, href]) => <a aria-current={active(href) ? "page" : undefined} href={href} key={href}>{label}</a>)}
+          <MoreMenu />
+          <a className="account-nav-link" href="/login">{signedIn ? "My Account" : "Log in"}</a>
+        </nav>
       </header>
     </>
   );
@@ -974,14 +937,22 @@ function CharitySelector({
     [attempt, setAttempt] = useState(0),
     environment = getPledgeEnvironment(),
     partnerKey = getPartnerKey(),
-    config = getPledgeWidgetConfig(partnerKey, environment);
+    config = getPledgeWidgetConfig(partnerKey, environment),
+    selectionVersion = useRef(0);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const action = parsePledgeMessage(event, environment);
       if (!action) return;
+      const version = ++selectionVersion.current;
       onChange(pledgeSelectionReducer(selected, action));
-      if (action.type === "selected")
-        void fetchCharityDetails(action.charity).then(onChange);
+      if (action.type === "selected") {
+        void fetchCharityDetails(action.charity).then((details) => {
+          // A donor can select a second organization before the optional
+          // server enrichment for the first one returns. Never let that late
+          // response overwrite the newer selection.
+          if (version === selectionVersion.current) onChange(details);
+        });
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -1001,10 +972,12 @@ function CharitySelector({
       setAttempt((v) => v + 1);
     },
     change = () => {
+      selectionVersion.current += 1;
       onChange(null);
       retry();
     },
-    location = selected ? charityLocation(selected) : "";
+    location = selected ? charityLocation(selected) : "",
+    logoUrl = safeCharityLogoUrl(selected?.logoUrl);
   return (
     <section className="charity-selector" aria-labelledby="charity-heading">
       <div className="charity-copy">
@@ -1022,7 +995,7 @@ function CharitySelector({
       </div>
       {selected ? (
         <div className="selected-charity" aria-live="polite">
-          {selected.logoUrl && <img src={selected.logoUrl} alt="" />}
+          {logoUrl && <img src={logoUrl} alt="" />}
           <div>
           <span>{campaignLocked ? "You're supporting this campaign's nonprofit" : "Selected charity"}</span>
             <strong>{selected.name}</strong>
@@ -1085,11 +1058,13 @@ function DonationPage() {
     [trackingLink, setTrackingLink] = useState(""),
     [notificationPending, setNotificationPending] = useState(false),
     [draftSaved, setDraftSaved] = useState(false),
+    [draftError, setDraftError] = useState(""),
     [submitting, setSubmitting] = useState(false),
     [submitError, setSubmitError] = useState(""),
     [turnstileToken, setTurnstileToken] = useState(""),
     charityRef = useRef<HTMLDivElement>(null),
     submissionAttempt = useRef<SubmissionAttempt | null>(null),
+    submissionBusyRef = useRef(false),
     turnstileResetRef = useRef<(() => void) | null>(null),
     registerTurnstileReset = useCallback((reset: () => void) => {
       turnstileResetRef.current = reset;
@@ -1106,12 +1081,12 @@ function DonationPage() {
     if (!campaignSlug) { setCampaignLoading(false); return; }
     let active = true;
     setCampaignLoading(true); setCampaignMessage("");
-    fetch(`/api/campaigns/${encodeURIComponent(campaignSlug)}`, { headers: { accept: "application/json" } })
-      .then(async (response) => {
-        const body = await response.json() as { campaign?: { charity?: SelectedCharity; charityPledgeId: string; charityName: string }; message?: string };
-        if (!response.ok || !body.campaign) throw new Error(body.message || "This campaign is not available.");
-        const beneficiary = body.campaign.charity || { pledgeId: body.campaign.charityPledgeId, name: body.campaign.charityName };
-        if (!beneficiary.pledgeId || !beneficiary.name) throw new Error("This campaign has no verified nonprofit beneficiary.");
+    publicApi<{ campaign?: { charity?: SelectedCharity; charityPledgeId: string; charityName: string; canDonate?: boolean } }>(`/api/campaigns/${encodeURIComponent(campaignSlug)}`)
+      .then((body) => {
+        if (!body.campaign) throw new Error("This campaign is not available.");
+        if (body.campaign.canDonate === false) throw new Error("This campaign is not currently accepting attributed donations. You can still choose any nonprofit below.");
+        const beneficiary = sanitizeCampaignCharity(body.campaign.charity || { pledgeId: body.campaign.charityPledgeId, name: body.campaign.charityName });
+        if (!beneficiary) throw new Error("This campaign has no verified nonprofit beneficiary.");
         if (!active) return;
         setSelectedCharity(beneficiary); setCampaignMessage(`You're supporting ${beneficiary.name}.`);
       })
@@ -1145,7 +1120,7 @@ function DonationPage() {
       setRecord(null);
     },
     addDevice = () =>
-      setDevices((c) => [...c, makeDevice(`phone-${Date.now()}`)]),
+      setDevices((c) => c.length >= MAX_DONATION_DEVICES ? c : [...c, makeDevice(crypto.randomUUID())]),
     removeDevice = (id: string) =>
       setDevices((c) => c.filter((d) => d.id !== id)),
     updateDonor = <K extends keyof DonorDetails>(
@@ -1178,34 +1153,60 @@ function DonationPage() {
       setRecord(null);
     },
     saveDraft = () => {
-      localStorage.setItem(
-        "donate-by-mail-draft",
-        serializeDonationDraft({
-          devices,
-          selectedCharity,
-          step,
-        }),
-      );
+      setDraftError("");
+      try {
+        localStorage.setItem(
+          "donate-by-mail-draft",
+          serializeDonationDraft({
+            devices,
+            selectedCharity,
+            step,
+          }),
+        );
+      } catch {
+        setDraftError("This browser could not save a draft. You can continue without saving.");
+        return;
+      }
       setDraftSaved(true);
       setTimeout(() => setDraftSaved(false), 1800);
     },
     loadDraft = () => {
-      const saved = localStorage.getItem("donate-by-mail-draft");
+      setDraftError("");
+      let saved: string | null;
+      try {
+        saved = localStorage.getItem("donate-by-mail-draft");
+      } catch {
+        setDraftError("This browser does not allow saved drafts.");
+        return;
+      }
       if (!saved) return;
       try {
         const d = parseDonationDraft<Device, SelectedCharity>(saved);
-        if (d.devices?.length) setDevices(d.devices);
+        const uniqueIds = new Set<string>();
+        if (!d.devices.every((device) => {
+          if (!safeDraftDevice(device) || uniqueIds.has(device.id)) return false;
+          uniqueIds.add(device.id);
+          return true;
+        })) throw new Error("invalid_donation_draft");
+        if (d.selectedCharity && !safeDraftCharity(d.selectedCharity)) throw new Error("invalid_donation_draft");
+        setDevices(d.devices);
         // A campaign handoff owns the beneficiary.  Restoring a normal draft
         // may restore device details and progress, never overwrite that
         // verified campaign selection or attribution.
         if (d.selectedCharity && !campaignSlug) setSelectedCharity(d.selectedCharity);
         if (d.step && (!campaignSlug || selectedCharity)) setStep(Math.min(3, Math.max(1, d.step)));
       } catch {
-        localStorage.removeItem("donate-by-mail-draft");
+        try { localStorage.removeItem("donate-by-mail-draft"); } catch { /* Ignore unavailable storage. */ }
+        setDraftError("The saved draft was invalid and has been cleared.");
       }
     },
     submit = async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      // React's disabled state is not an atomic lock: two native submit
+      // events can arrive before the next render. Serialize the mutation at
+      // the event boundary so a double-click cannot create two provider and
+      // outbox attempts before the server idempotency key is observed.
+      if (submissionBusyRef.current) return;
       setSubmitError("");
       if (!selectedCharity) {
         setCharityError(
@@ -1239,6 +1240,10 @@ function DonationPage() {
         charity: selectedCharity,
         campaignSlug: campaignSlug || undefined,
       };
+      // Set the synchronous lock only after all local snapshot construction
+      // succeeds, so an unexpected client-side serialization error cannot
+      // strand the form in a permanently busy state.
+      submissionBusyRef.current = true;
       setSubmitting(true);
       try {
         const response = await sendDonation(next, turnstileToken),
@@ -1259,7 +1264,7 @@ function DonationPage() {
           selected_charity: Boolean(next.charity.pledgeId),
         });
         submissionAttempt.current = null;
-        localStorage.removeItem("donate-by-mail-draft");
+        try { localStorage.removeItem("donate-by-mail-draft"); } catch { /* Storage cleanup is best-effort after persistence. */ }
       } catch (error) {
         setSubmitError(
           error instanceof Error
@@ -1270,6 +1275,7 @@ function DonationPage() {
         turnstileResetRef.current?.();
         setTurnstileToken("");
         setSubmitting(false);
+        submissionBusyRef.current = false;
       }
     },
     printDocument = () => {
@@ -1319,6 +1325,7 @@ function DonationPage() {
                       <label className="field">
                         <span>Model, if known</span>
                         <input
+                          maxLength={160}
                           value={d.model}
                           onChange={(e) =>
                             updateDevice(d.id, "model", e.target.value)
@@ -1374,10 +1381,11 @@ function DonationPage() {
                   </article>
                 ))}
               </div>
-              <button className="add-button" onClick={addDevice}>
+              <button className="add-button" onClick={addDevice} disabled={devices.length >= MAX_DONATION_DEVICES}>
                 <Plus />
-                Add another phone
+                {devices.length >= MAX_DONATION_DEVICES ? "Maximum of 20 phones" : "Add another phone"}
               </button>
+              {devices.length >= MAX_DONATION_DEVICES && <p className="inline-help" role="status">You can create a separate donation packet for additional phones.</p>}
               <p className="inline-help">
                 <HelpCircle />
                 Not sure which model you have?{" "}
@@ -1476,6 +1484,7 @@ function DonationPage() {
                   <label className="field">
                     <span>First name</span>
                     <input
+                      maxLength={120}
                       required
                       autoComplete="given-name"
                       value={donor.firstName}
@@ -1487,6 +1496,7 @@ function DonationPage() {
                       Middle name <em>optional</em>
                     </span>
                     <input
+                      maxLength={120}
                       autoComplete="additional-name"
                       value={donor.middleName}
                       onChange={(e) =>
@@ -1497,6 +1507,7 @@ function DonationPage() {
                   <label className="field full">
                     <span>Last name</span>
                     <input
+                      maxLength={120}
                       required
                       autoComplete="family-name"
                       value={donor.lastName}
@@ -1521,6 +1532,7 @@ function DonationPage() {
                   <label className="field full">
                     <span>Email address</span>
                     <input
+                      maxLength={320}
                       required
                       type="email"
                       autoComplete="email"
@@ -1531,6 +1543,7 @@ function DonationPage() {
                   <label className="field full">
                     <span>Street address</span>
                     <input
+                      maxLength={240}
                       required
                       autoComplete="address-line1"
                       value={donor.address1}
@@ -1542,6 +1555,7 @@ function DonationPage() {
                       Apartment, suite, or unit <em>optional</em>
                     </span>
                     <input
+                      maxLength={240}
                       autoComplete="address-line2"
                       value={donor.address2}
                       onChange={(e) => updateDonor("address2", e.target.value)}
@@ -1550,6 +1564,7 @@ function DonationPage() {
                   <label className="field">
                     <span>City</span>
                     <input
+                      maxLength={160}
                       required
                       autoComplete="address-level2"
                       value={donor.city}
@@ -1569,6 +1584,7 @@ function DonationPage() {
                         State, province, or region <em>optional</em>
                       </span>
                       <input
+                        maxLength={160}
                         autoComplete="address-level1"
                         value={donor.state}
                         onChange={(e) => updateDonor("state", e.target.value)}
@@ -1581,6 +1597,7 @@ function DonationPage() {
                       {donor.country !== "US" && <em> optional</em>}
                     </span>
                     <input
+                      maxLength={32}
                       required={donor.country === "US"}
                       inputMode={donor.country === "US" ? "numeric" : "text"}
                       pattern={
@@ -1642,8 +1659,10 @@ function DonationPage() {
                     Restore saved draft
                   </button>
                 </div>
+                {draftError && <p className="field-error" role="alert">{draftError}</p>}
                 {TURNSTILE_SITE_KEY && (
                   <TurnstileWidget
+                    action="donation_submit"
                     onToken={setTurnstileToken}
                     onResetReady={registerTurnstileReset}
                   />
@@ -1902,6 +1921,11 @@ function PackingSlip({
 }
 function App() {
   const path = window.location.pathname.toLowerCase();
+  const renderedCampaignAlias = document
+    .querySelector<HTMLMetaElement>('meta[name="dbm-campaign-slug"]')
+    ?.content.trim().match(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)?.[0];
+  if (renderedCampaignAlias)
+    return <div className="page"><Header /><CampaignPage slug={renderedCampaignAlias} /><Footer /></div>;
   if (path === "/track" || path === "/track/")
     return <div className="page"><Header /><TrackingPage /><Footer /></div>;
   if (path === "/staff" || path === "/staff/")
@@ -1910,10 +1934,18 @@ function App() {
     return <div className="page"><Header /><DonorAccountPage /><Footer /></div>;
   if (path === "/login" || path === "/login/")
     return <div className="page"><Header /><AccountGatewayPage /><Footer /></div>;
+  if (path === "/auth/confirm" || path === "/auth/confirm/")
+    return <div className="page"><Header /><AuthConfirmPage /><Footer /></div>;
+  if (path === "/auth/mfa" || path === "/auth/mfa/")
+    return <div className="page"><Header /><MfaChallengePage /><Footer /></div>;
   if (path === "/settings" || path === "/settings/")
     return <div className="page"><Header /><AccountSettingsPage /><Footer /></div>;
   if (path === "/partner" || path === "/partner/")
     return <div className="page"><Header /><PartnerPage /><Footer /></div>;
+  if (path === "/partner/apply" || path === "/partner/apply/")
+    return <div className="page"><Header /><PartnerApplicationPage /><Footer /></div>;
+  const flyerMatch = path.match(/^\/partner\/campaigns\/([0-9a-f-]{36})\/flyer\/?$/);
+  if (flyerMatch) return <CampaignFlyerPage campaignId={flyerMatch[1]} />;
   if (path === "/articles" || path === "/articles/" || path === "/articles.html")
     return <div className="page"><Header /><ArticlesPage /><Footer /></div>;
   const articleMatch = path.match(/^\/articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
@@ -1922,6 +1954,9 @@ function App() {
   const campaignMatch = path.match(/^\/c\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
   if (campaignMatch)
     return <div className="page"><Header /><CampaignPage slug={campaignMatch[1]} /><Footer /></div>;
+  const nonprofitMatch = path.match(/^\/nonprofits\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+  if (nonprofitMatch)
+    return <div className="page"><Header /><NonprofitPage slug={nonprofitMatch[1]} /><Footer /></div>;
   return path.endsWith("/donate-phone") ||
     path.endsWith("/donate-phone.html") ||
     path.endsWith("donate-phone.html") ? (

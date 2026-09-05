@@ -28,5 +28,9 @@ describe("campaign vanity aliases", () => {
       valid: false,
       reason: "invalid_format",
     });
+    expect(validateVanityAlias("a".repeat(121))).toMatchObject({
+      valid: false,
+      reason: "invalid_format",
+    });
   });
 });

@@ -21,11 +21,11 @@ The beta article connector is available to ChatGPT through the dedicated
 managed-OAuth endpoint at
 `https://mcp-oauth-beta.donatebymail.org/mcp`. Cloudflare Access provides the
 OAuth front door and restricts the app to the authorized beta staff identity.
-The Cloudflare MCP Portal remains available at
-`https://mcp-portal-beta.donatebymail.org/mcp` as an administrative fallback;
-its upstream is the dedicated beta connector hostname
+The dedicated beta connector hostname is
 `https://mcp-connector-beta.donatebymail.org/mcp`, protected by a server-only
-bearer secret. The original
+bearer secret. If a separately managed Cloudflare MCP Portal is used, its
+upstream must be that connector; `mcp-portal-beta.donatebymail.org` is not a
+Worker route in this repository. The original
 `https://mcp-beta.donatebymail.org/mcp/articles` hostname remains available for
 private diagnostics and is independently protected by Cloudflare Access. The
 article server exposes only
@@ -41,10 +41,12 @@ tools, and tests the draft app before publishing it to the workspace. The
 published beta app is restricted to `tre@donatebymail.org` by Cloudflare Access
 and exposes six article actions. Cloudflare stores the portal's upstream bearer
 credential in its managed MCP configuration; it is never placed in the browser
-app, repository, or ChatGPT instructions. ChatGPT may still display its own
-confirmation UI for write actions according to workspace app permissions, but
-the current server-side article policy does not require a separate staff
-approval record.
+app, repository, or ChatGPT instructions. The MCP host should require an
+explicit confirmation before scheduling or publishing; those tools advertise
+`destructiveHint: true` even when the current beta server-side article policy
+automatically allows the exact command. This host confirmation is distinct
+from a separate staff approval record, which the current beta policy does not
+require.
 
 - Draft creation, revision creation, future scheduling, and exact-revision
   publication are automatically allowed by the beta policy when their risk

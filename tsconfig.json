@@ -16,5 +16,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "worker-configuration.d.ts"]
+  "include": ["src", "scripts/*.d.ts", "worker-configuration.d.ts"]
 }

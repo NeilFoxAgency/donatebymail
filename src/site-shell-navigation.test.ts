@@ -15,6 +15,8 @@ describe("shared navigation", () => {
     expect(shellScript).toContain("pointerdown");
     expect(shellScript).toContain("Escape");
     expect(shellScript).toContain('skip.textContent = "Skip to content"');
+    expect(shellScript).toContain("response.text()");
+    expect(shellScript).not.toContain("response.json()");
     expect(shellScript).not.toContain("<summary>Explore</summary>");
     expect(shellCss).toContain(".nav-menu-panel");
   });

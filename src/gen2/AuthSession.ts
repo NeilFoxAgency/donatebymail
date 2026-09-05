@@ -1,14 +1,52 @@
 let csrfToken = "";
+const MAX_CLIENT_JSON_BYTES = 512 * 1024;
+const CLIENT_REQUEST_TIMEOUT_MS = 20_000;
+
+function requestSignal(existing?: AbortSignal | null): AbortSignal | undefined {
+  if (existing) return existing;
+  if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") return undefined;
+  return AbortSignal.timeout(CLIENT_REQUEST_TIMEOUT_MS);
+}
+
+async function boundedResponseText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_CLIENT_JSON_BYTES) throw new Error("response_too_large");
+    return text;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_CLIENT_JSON_BYTES) {
+        await reader.cancel("response_too_large");
+        throw new Error("response_too_large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 export async function responseJson<T = Record<string, unknown>>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") || "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new Error(
-      "This beta page needs an active Cloudflare Access session. Reload the page and sign in before trying again.",
-    );
+  if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+    throw new Error("The secure service returned an unexpected response. Reload the page and try again.");
   }
   try {
-    return await response.json() as T;
+    return JSON.parse(await boundedResponseText(response)) as T;
   } catch {
     throw new Error("The secure service returned an invalid response. Please reload and try again.");
   }
@@ -17,12 +55,13 @@ export async function responseJson<T = Record<string, unknown>>(response: Respon
 export async function publicApi<T = Record<string, unknown>>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
+    signal: requestSignal(init?.signal),
     credentials: "include",
     cache: "no-store",
     headers: {
+      ...init?.headers,
       accept: "application/json",
       ...(init?.body ? { "content-type": "application/json" } : {}),
-      ...init?.headers,
     },
   });
   const body = await responseJson<T>(response);
@@ -59,13 +98,14 @@ export async function authenticatedApi(path: string, init?: RequestInit) {
   const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
   const response = await fetch(path, {
     ...init,
+    signal: requestSignal(init?.signal),
     credentials: "include",
     cache: "no-store",
     headers: {
+      ...init?.headers,
       accept: "application/json",
       ...(init?.body ? { "content-type": "application/json" } : {}),
       ...(mutating ? { "x-csrf-token": await csrf() } : {}),
-      ...init?.headers,
     },
   });
   const body = await responseJson<Record<string, any>>(response);
@@ -82,6 +122,7 @@ export async function authenticatedUpload(path: string, form: FormData) {
     body: form,
     credentials: "include",
     cache: "no-store",
+    signal: requestSignal(),
     headers: { accept: "application/json", "x-csrf-token": await csrf() },
   });
   const body = await responseJson<Record<string, any>>(response);

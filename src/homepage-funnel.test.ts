@@ -7,6 +7,11 @@ const metadata = readFileSync("index.html", "utf8");
 const llms = readFileSync("public/llms.txt", "utf8");
 
 describe("donor-first homepage funnel", () => {
+  it("uses an origin-rooted beneficiary enrichment route on campaign pages", () => {
+    expect(home).toContain("/api/pledge/organizations/");
+    expect(home).not.toContain("./api/pledge/organizations/");
+  });
+
   it("leads with the core proposition and a dominant donor action", () => {
     expect(home).toContain("Old Phones.");
     expect(home).toContain(

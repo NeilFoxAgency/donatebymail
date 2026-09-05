@@ -4,6 +4,21 @@
 the required beta-only perimeter; it must never cover `donatebymail.org` or the
 production Worker route.
 
+## Current hosted status
+
+The historical checks below are evidence from the July 29–30 beta deployment,
+not a current release approval. The hosted beta must be rechecked after every
+Worker or Supabase change. As of August 8, 2026, the connected Cloudflare
+account shows a newer beta deployment, but the unauthenticated operations
+connector still returns a generic readiness body without the current
+`applicationContractVersion` and `agentContractVersion`. Treat that as a
+failed readiness gate until an Access-protected `npm run smoke:beta` and the
+separate `npm run smoke:agent` both pass against the current deployment. The
+dedicated connector hosts must also redirect plaintext POST `/mcp` requests
+with a method-preserving 307/308 response to their canonical HTTPS routes; an
+authentication error over plaintext or a method-changing 301/302 redirect is a
+transport failure, not a successful boundary check.
+
 ## Active configuration
 
 The account owner activated Zero Trust Free. The active boundary is:
@@ -30,7 +45,9 @@ On July 29–30, 2026:
 
 - An anonymous beta request redirected to the Cloudflare Access challenge.
 - The repository's `npm run smoke:beta` received HTTP 200 with the service
-  token and verified the Donate by Mail application body.
+  token, verified the Donate by Mail application body and current Worker build
+  marker, and checked the JSON `/healthz` plus contract-aware `/readyz`
+  responses.
 - `tre@donatebymail.org` completed one-time-PIN authentication and received the
   beta homepage.
 - The Access logout endpoint cleared the human session; the next beta request

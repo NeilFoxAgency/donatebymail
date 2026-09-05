@@ -244,6 +244,11 @@ body.support-page {
   margin: 0 0 0.65rem;
   color: #fff;
 }
+.doggo-guide .eyebrow,
+.final-cta .eyebrow {
+  /* The global red eyebrow is too low-contrast on these dark panels. */
+  color: #e7b0b6 !important;
+}
 .doggo-guide p {
   max-width: 42rem;
   color: #d7e1ea;

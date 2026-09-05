@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, HeartHandshake, LockKeyhole, PackageCheck, Smartphone } from "lucide-react";
 import { publicApi } from "./AuthSession";
+import { safeExternalHttpsUrl, safePrivateAssetUrl } from "./urlSafety";
 
 type Campaign = {
   slug: string;
@@ -22,6 +23,10 @@ type Campaign = {
   supportingDecorative?: boolean;
   blocks?: Array<{ type: "text" | "callout" | "statistic" | "quote"; content: Record<string, string> }>;
   revision?: number;
+  status?: "scheduled" | "published" | "ended";
+  canDonate?: boolean;
+  phoneGoal?: number | null;
+  phonesReceived?: number;
 };
 
 type CharityDetails = {
@@ -36,21 +41,15 @@ type CharityDetails = {
 };
 
 function safeImageUrl(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
-  try {
-    const url = new URL(value, window.location.origin);
-    if (url.origin === window.location.origin && url.pathname.startsWith("/api/campaign-assets/")) return url.pathname;
-    if (url.protocol === "https:" && (url.hostname === "res.cloudinary.com" || url.hostname === "pledgeling-res.cloudinary.com")) return url.toString();
-  } catch { /* An untrusted asset URL is ignored. */ }
-  return null;
-}
-
-function safeWebsiteUrl(value: unknown): string | null {
+  const privateUrl = safePrivateAssetUrl(value, ["/api/campaign-assets/"]);
+  if (privateUrl) return privateUrl;
   if (typeof value !== "string" || !value.trim()) return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch { return null; }
+    if (url.protocol === "https:" && !url.username && !url.password
+      && (url.hostname === "res.cloudinary.com" || url.hostname === "pledgeling-res.cloudinary.com")) return url.toString();
+  } catch { /* An untrusted asset URL is ignored. */ }
+  return null;
 }
 
 function initials(name: string): string {
@@ -70,30 +69,52 @@ export function CampaignPage({ slug }: { slug: string }) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [charity, setCharity] = useState<CharityDetails | null>(null);
   const [message, setMessage] = useState("Loading campaign…");
+  const [environment, setEnvironment] = useState<"beta" | "production">("production");
 
   useEffect(() => {
     let active = true;
+    // Route changes can reuse this component instance. Clear the previous
+    // campaign immediately so a slower request cannot leave the old campaign
+    // headline, beneficiary, or donation link on the new URL.
+    setCampaign(null);
+    setCharity(null);
     setMessage("Loading campaign…");
-    publicApi<{ campaign?: Campaign }>(`/api/campaigns/${encodeURIComponent(slug)}`)
+    publicApi<{ campaign?: Campaign; environment?: "beta" | "production" }>(`/api/campaigns/${encodeURIComponent(slug)}`)
       .then((body) => {
         if (!body.campaign) throw new Error("Campaign unavailable.");
         if (!active) return;
         setCampaign(body.campaign);
+        setEnvironment(body.environment || "production");
         setCharity(body.campaign.charity || { pledgeId: body.campaign.charityPledgeId, name: body.campaign.charityName });
         setMessage("");
+        void publicApi<{ ok?: boolean }>(`/api/campaigns/${encodeURIComponent(slug)}/events?src=${encodeURIComponent(new URLSearchParams(window.location.search).get("src") || "direct")}`, {
+          method: "POST", body: JSON.stringify({ type: "view" }),
+        }).catch(() => undefined);
       })
       .catch((error: Error) => { if (active) setMessage(error.message); });
     return () => { active = false; };
   }, [slug]);
 
-  const paragraphs = useMemo(() => campaign?.story.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean) || [], [campaign?.story]);
+  const paragraphs = useMemo(() => typeof campaign?.story === "string"
+    ? campaign.story.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean)
+    : [], [campaign?.story]);
   const heroImage = safeImageUrl(campaign?.heroImageUrl);
   const supportingImage = safeImageUrl(campaign?.supportingImageUrl);
-  const website = safeWebsiteUrl(charity?.websiteUrl);
+  const website = safeExternalHttpsUrl(charity?.websiteUrl);
   const location = [charity?.city, charity?.state, charity?.country].filter(Boolean).join(", ");
-  const betaOnly = campaign?.slug.startsWith("beta-");
+  const betaOnly = environment === "beta";
 
   if (!campaign) return <main className="campaign-public campaign-loading"><p role="status">{message}</p></main>;
+  const donationHref = campaign.canDonate === false ? "/donate-phone" : `/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`;
+  const donationLabel = campaign.canDonate === false ? "Donate to a Charity" : campaign.ctaLabel || "Donate a Phone";
+  const progress = campaign.phoneGoal ? Math.min(100, Math.round(((campaign.phonesReceived || 0) / campaign.phoneGoal) * 100)) : null;
+  const recordStart = () => {
+    if (campaign.canDonate === false) return;
+    const attemptId = crypto.randomUUID();
+    void publicApi<{ ok?: boolean }>(`/api/campaigns/${encodeURIComponent(campaign.slug)}/events?src=${encodeURIComponent(new URLSearchParams(window.location.search).get("src") || "direct")}`, {
+      method: "POST", keepalive: true, body: JSON.stringify({ type: "donation_started", attemptId }),
+    }).catch(() => undefined);
+  };
 
   return <main className="campaign-public">
     <section className="campaign-hero">
@@ -103,7 +124,7 @@ export function CampaignPage({ slug }: { slug: string }) {
           <h1>{campaign.headline}</h1>
           <p className="campaign-summary">{campaign.summary}</p>
           <div className="campaign-actions">
-            <a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>{campaign.ctaLabel || "Donate a Phone"}<ArrowRight aria-hidden="true" /></a>
+            <a className="button primary" href={donationHref} onClick={recordStart}>{donationLabel}<ArrowRight aria-hidden="true" /></a>
             <a className="campaign-text-link" href="#how-it-works">See how it works <ArrowRight aria-hidden="true" /></a>
           </div>
           <p className="campaign-reassurance"><LockKeyhole aria-hidden="true" /> We never ask for your phone passcode.</p>
@@ -117,6 +138,10 @@ export function CampaignPage({ slug }: { slug: string }) {
         </div>
       </div>
     </section>
+
+    {campaign.canDonate === false && <section className="campaign-window-notice" aria-label="Campaign status"><div className="campaign-wrap"><strong>{campaign.status === "scheduled" ? "This campaign has not opened yet." : "This campaign has ended."}</strong><p>You can still use the standard Donate by Mail flow and choose another nonprofit.</p></div></section>}
+
+    {progress !== null && <section className="campaign-progress" aria-label="Campaign progress"><div className="campaign-wrap"><div><strong>{campaign.phonesReceived || 0}</strong><span> phones received toward a goal of {campaign.phoneGoal}</span></div><progress value={progress} max="100" aria-label={`${progress}% of phone goal received`}>{progress}%</progress><small>Progress counts phones physically received by Donate by Mail, not unverified pledges.</small></div></section>}
 
     <section className="campaign-trust" aria-label="Campaign trust signals">
       <div className="campaign-wrap campaign-trust-grid">
@@ -132,13 +157,20 @@ export function CampaignPage({ slug }: { slug: string }) {
           <p className="campaign-eyebrow">About this campaign</p>
           <h2>A small device can carry a meaningful next chapter.</h2>
         </div>
-        <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}{campaign.blocks?.map((block, index) => <article className={`campaign-block campaign-block-${block.type}`} key={`${block.type}-${index}`}><p className="campaign-eyebrow">{block.type === "statistic" ? "Impact" : block.type === "quote" ? "A partner's perspective" : "Campaign note"}</p>{block.content.heading && <h3>{block.content.heading}</h3>}{block.content.body && <p>{block.content.body}</p>}{block.content.value && <strong>{block.content.value}</strong>}</article>)}{supportingImage && <figure className="campaign-supporting-figure">{campaign.supportingDecorative ? <img src={supportingImage} alt="" aria-hidden="true" /> : <img src={supportingImage} alt={campaign.supportingAltText || `${campaign.name} story`} />}<figcaption>{campaign.name}</figcaption></figure>}</div>
+          <div className="campaign-story-copy">{paragraphs.map((paragraph, index) => <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>)}{campaign.blocks?.map((block, index) => {
+            if (!block || !["text", "callout", "statistic", "quote"].includes(block.type)
+              || !block.content || typeof block.content !== "object" || Array.isArray(block.content)) return null;
+            const content = block.content as Record<string, unknown>;
+            const text = (key: string) => typeof content[key] === "string" && content[key] ? content[key] as string : null;
+            const heading = text("heading"), body = text("body"), value = text("value"), attribution = text("attribution"), label = text("label");
+            return <article className={`campaign-block campaign-block-${block.type}`} key={`${block.type}-${index}`}><p className="campaign-eyebrow">{block.type === "statistic" ? "Impact" : block.type === "quote" ? "A partner's perspective" : "Campaign note"}</p>{heading && <h3>{heading}</h3>}{body && (block.type === "quote" ? <blockquote>{body}</blockquote> : <p>{body}</p>)}{value && <strong>{value}</strong>}{attribution && <cite>{attribution}</cite>}{label && <span>{label}</span>}</article>;
+          })}{supportingImage && <figure className="campaign-supporting-figure">{campaign.supportingDecorative ? <img src={supportingImage} alt="" aria-hidden="true" /> : <img src={supportingImage} alt={campaign.supportingAltText || `${campaign.name} story`} />}<figcaption>{campaign.name}</figcaption></figure>}</div>
       </div>
     </section>
 
     <section className="campaign-section campaign-choice-section">
       <div className="campaign-wrap campaign-choice-grid">
-        <div><p className="campaign-eyebrow">Support this campaign</p><h2>Support {charity?.name || campaign.charityName} with your old phone.</h2><p className="campaign-choice-copy">The campaign nonprofit is already selected. When you start your donation, that beneficiary stays attached to the donation record and appears again in your confirmation.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>Continue to mailing details <ArrowRight aria-hidden="true" /></a></div>
+        <div><p className="campaign-eyebrow">Support this campaign</p><h2>Support {charity?.name || campaign.charityName} with your old phone.</h2><p className="campaign-choice-copy">The campaign nonprofit is already selected. When you start your donation, that beneficiary stays attached to the donation record and appears again in your confirmation.</p><a className="button primary" href={donationHref} onClick={recordStart}>{donationLabel} <ArrowRight aria-hidden="true" /></a></div>
         <aside className="campaign-choice-card"><CharityLogo charity={charity || { pledgeId: campaign.charityPledgeId, name: campaign.charityName }} large /><p className="campaign-eyebrow">Verified nonprofit</p><h3>{charity?.name || campaign.charityName}</h3><p>Nonprofit details and logo are refreshed from the verified Pledge record before this public page is shown.</p>{website && <a href={website} target="_blank" rel="noopener noreferrer">Learn more about this nonprofit <ExternalLink aria-hidden="true" /></a>}</aside>
       </div>
     </section>
@@ -176,6 +208,6 @@ export function CampaignPage({ slug }: { slug: string }) {
       </div></div>
     </section>
 
-    <section className="campaign-final-cta"><div className="campaign-wrap"><p className="campaign-eyebrow">Ready when you are</p><h2>Give an old phone a purpose beyond the drawer.</h2><p>Choose your phone, support {charity?.name || campaign.charityName}, and we’ll guide you through the rest.</p><a className="button primary" href={`/donate-phone?campaign=${encodeURIComponent(campaign.slug)}`}>{campaign.ctaLabel || "Donate a Phone"}<ArrowRight aria-hidden="true" /></a></div></section>
+    <section className="campaign-final-cta"><div className="campaign-wrap"><p className="campaign-eyebrow">Ready when you are</p><h2>Give an old phone a purpose beyond the drawer.</h2><p>Choose your phone, support {charity?.name || campaign.charityName}, and we’ll guide you through the rest.</p><a className="button primary" href={donationHref} onClick={recordStart}>{donationLabel}<ArrowRight aria-hidden="true" /></a></div></section>
   </main>;
 }

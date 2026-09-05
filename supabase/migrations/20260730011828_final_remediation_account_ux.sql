@@ -355,7 +355,7 @@ begin
      redacted_changes, metadata)
   values ('staff', actor_user_id::text, 'donation.add_unexpected_device',
     'donation_device', device_id, 'physical_device_found',
-    jsonb_build_object('source','unexpected'), jsonb_build_object('environment','beta'));
+    jsonb_build_object('source','unexpected'), '{}'::jsonb);
   return jsonb_build_object('ok',true,'deviceId',device_id);
 end;
 $$;
@@ -406,7 +406,7 @@ begin
   values ('staff',actor_user_id::text,'donation.record_physical_receipt','donation',
     candidate_donation_id,'physical_package_received',
     jsonb_build_object('status',jsonb_build_object('from',current_status,'to','received'),
-      'device_receipts_recorded',changed_count),jsonb_build_object('environment','beta'));
+      'device_receipts_recorded',changed_count), '{}'::jsonb);
   insert into app_private.domain_events(event_type,aggregate_type,aggregate_id,aggregate_version,payload)
   values ('donation.received','donation',candidate_donation_id,2,
     jsonb_build_object('donationId',candidate_donation_id)) returning id into domain_event_id;
@@ -584,7 +584,7 @@ begin
   values ('staff',actor_user_id::text,'donation.update_device','donation_device',candidate_device_id,
     'staff_inspection_update',jsonb_build_object('inspection_status',next_inspection,
       'processing_status',next_processing,'data_wipe_status',next_wipe,
-      'assessed_value_recorded',next_value is not null),jsonb_build_object('environment','beta'));
+      'assessed_value_recorded',next_value is not null), '{}'::jsonb);
   return jsonb_build_object('ok',true);
 end;
 $$;
@@ -619,7 +619,7 @@ begin
     (actor,actor_ref,action_name,entity_type,entity_id,reason_code,redacted_changes,metadata)
   values ('staff',actor_user_id::text,'donation.change_status','donation',candidate_donation_id,
     'staff_status_update',jsonb_build_object('status',jsonb_build_object('from',old_status,'to',new_status)),
-    jsonb_build_object('environment','beta'));
+    '{}'::jsonb);
   insert into app_private.domain_events(event_type,aggregate_type,aggregate_id,aggregate_version,payload)
   values ('donation.status_changed','donation',candidate_donation_id,
     (select count(*)::integer from app_private.donation_status_events where donation_id=candidate_donation_id),

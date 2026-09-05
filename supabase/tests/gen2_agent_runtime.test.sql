@@ -2,19 +2,33 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(41);
+select plan(59);
 
 select has_table('app_private', 'partner_leads', 'agent-created partner leads are private');
 select has_column('app_private', 'donation_internal_notes', 'created_by_agent', 'internal notes retain agent attribution');
 select has_column('app_private', 'campaign_revisions', 'requested_by_agent', 'campaign revisions retain agent attribution');
 select has_function('api', 'agent_execute_command', array['uuid', 'text', 'text', 'uuid', 'jsonb'], 'agent execution uses a narrow semantic RPC');
 select has_function('api', 'agent_get_donation_context', array['text'], 'agent donation reads use a redacted context RPC');
-select has_function('api', 'agent_get_campaign_metrics', array['uuid'], 'agent campaign reads use aggregate metrics');
-select has_function('api', 'agent_get_partner_context', array['uuid'], 'agent partner reads use a tenant-scoped context');
+select has_function('api', 'agent_get_campaign_metrics', array['uuid'], 'legacy campaign metrics remain available only to the service boundary');
+select has_function('api', 'agent_get_partner_context', array['uuid'], 'legacy partner context remains available only to the service boundary');
+select has_function('api', 'agent_contract_version', array[]::text[], 'beta readiness has an explicit agent contract probe');
+select has_function('api', 'application_contract_version', array[]::text[], 'production readiness has an explicit application contract probe');
 select is(has_table_privilege('anon', 'app_private.partner_leads', 'select'), false, 'anonymous callers cannot read partner lead PII');
 select is(has_table_privilege('service_role', 'app_private.partner_leads', 'select'), true, 'only the service role receives partner lead table access');
 select is(has_function_privilege('anon', 'api.agent_execute_command(uuid,text,text,uuid,jsonb)', 'execute'), false, 'anonymous callers cannot execute agent commands');
 select is(has_function_privilege('service_role', 'api.agent_execute_command(uuid,text,text,uuid,jsonb)', 'execute'), true, 'the Worker service can execute bounded agent commands');
+select is(has_function_privilege('anon', 'api.agent_get_campaign_metrics(uuid)', 'execute'), false, 'anonymous callers cannot execute legacy campaign reads');
+select is(has_function_privilege('authenticated', 'api.agent_get_campaign_metrics(uuid)', 'execute'), false, 'authenticated callers cannot execute legacy campaign reads');
+select is(has_function_privilege('anon', 'api.agent_get_partner_context(uuid)', 'execute'), false, 'anonymous callers cannot execute legacy partner reads');
+select is(has_function_privilege('authenticated', 'api.agent_get_partner_context(uuid)', 'execute'), false, 'authenticated callers cannot execute legacy partner reads');
+select is(has_function_privilege('service_role', 'api.agent_get_campaign_metrics(uuid)', 'execute'), true, 'legacy campaign reads remain service-only for compatibility');
+select is(has_function_privilege('service_role', 'api.agent_get_partner_context(uuid)', 'execute'), true, 'legacy partner reads remain service-only for compatibility');
+select is(has_function_privilege('anon', 'api.agent_contract_version()', 'execute'), false, 'anonymous callers cannot probe the private agent contract');
+select is(has_function_privilege('service_role', 'api.agent_contract_version()', 'execute'), true, 'the Worker service can probe the agent contract');
+select is(has_function_privilege('anon', 'api.application_contract_version()', 'execute'), false, 'anonymous callers cannot probe the private application contract');
+select is(has_function_privilege('service_role', 'api.application_contract_version()', 'execute'), true, 'the Worker service can probe the application contract');
+select is(has_function_privilege('service_role', 'api.agent_record_outbound_message_checked(text,uuid,text,text,text,text,text,text,text,timestamptz,text)', 'execute'), true, 'the Worker service can use the provider-bound outbound journal wrapper');
+select is(has_function_privilege('service_role', 'api.agent_record_outbound_message(text,uuid,text,text,text,text,text,text,text,timestamptz)', 'execute'), false, 'the legacy outbound journal remains owner-only behind the checked wrapper');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='update_campaign_content' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'routine campaign wording can be autonomous under the active policy');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='create_partner_lead' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'bounded partner lead creation can be autonomous');
 select is((select r.outcome::text from app_private.action_policy_rules r join app_private.action_policy_versions v on v.id=r.policy_version_id where r.command_name='create_internal_note' and r.actor='agent' and v.lifecycle='active'), 'ALLOW_AUTOMATICALLY', 'bounded internal notes can be autonomous');
@@ -47,6 +61,19 @@ select api.create_donation(
   gen_random_uuid(),gen_random_uuid(),repeat('a',64),null) result;
 
 select is((select result->>'publicId' from donation_fixture) ~ '^DBM-[0-9]{8}-[A-F0-9]{8}$', true, 'agent fixture donation has a donor-safe public ID');
+
+insert into app_private.donation_devices(donation_id, source, donor_device_key)
+select (select (result->>'donationId')::uuid from donation_fixture), 'expected',
+  'bounded-agent-device-' || n::text
+from generate_series(1, 25) as values(n);
+insert into app_private.donation_status_events(donation_id, status, donor_visible, public_message, actor, occurred_at)
+select (select (result->>'donationId')::uuid from donation_fixture), 'submitted', true,
+  'Bounded agent timeline ' || n::text, 'system', now() + make_interval(secs => n)
+from generate_series(1, 105) as values(n);
+select is(jsonb_array_length(api.get_donation_status((select result->>'publicId' from donation_fixture))->'devices'), 20,
+  'public donation status caps device snapshots');
+select is(jsonb_array_length(api.get_donation_status((select result->>'publicId' from donation_fixture))->'events'), 100,
+  'public donation status caps donor-visible history');
 
 create temporary table note_decision as
 select api.evaluate_agent_command('agent-runtime','create_internal_note','donation',
@@ -81,6 +108,8 @@ select is((api.agent_get_donation_context((select result->>'publicId' from donat
 select is((api.agent_get_campaign_metrics('91000000-0000-4000-8000-000000000005')->>'campaignId'), '91000000-0000-4000-8000-000000000005', 'agent campaign metrics resolve the campaign');
 select is((api.agent_get_partner_context('91000000-0000-4000-8000-000000000004')->'organization'->>'slug'), 'agent-runtime-partner', 'agent partner context is organization scoped');
 select is((api.agent_get_partner_context('91000000-0000-4000-8000-000000000004') ? 'donorEmail'), false, 'agent partner context excludes donor PII');
+select is(api.agent_contract_version()->>'contractVersion', '20260808150002', 'agent contract probe reports the current retry-safe agent contract');
+select is(api.application_contract_version()->>'contractVersion', '20260808144611', 'application contract probe reports the required readiness migration');
 
 create temporary table send_decision as
 select api.evaluate_agent_command('agent-runtime','send_message','donation',null,'low','{}',repeat('e',64),gen_random_uuid(),'agent-runtime-send-1') result;

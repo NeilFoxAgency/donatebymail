@@ -9,6 +9,12 @@ export type BffSession = {
   expiresAt: number;
   absoluteExpiresAt: number;
   csrf: string;
+  /** True only during the short post-email-link TOTP challenge. */
+  mfaPending?: boolean;
+  /** Server-selected destination restored after successful MFA. */
+  mfaDestination?: string;
+  /** Enrollment must complete before a privileged staff workspace is usable. */
+  mfaEnrollmentRequired?: boolean;
 };
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -37,12 +43,28 @@ export async function sealSession(session: BffSession, secret: string): Promise<
 
 export async function openSession(value: string, secret: string, now = Date.now()): Promise<BffSession | null> {
   try {
+    // The value comes from an attacker-controlled Cookie header. Keep malformed
+    // or oversized envelopes out of base64/AES parsing before doing any work.
+    if (typeof value !== "string" || value.length < 20 || value.length > 16_384) return null;
     const [version, iv, ciphertext] = value.split(".");
     if (version !== "v1" || !iv || !ciphertext) return null;
     const ivBytes = base64UrlToBytes(iv), cipherBytes = base64UrlToBytes(ciphertext);
+    if (ivBytes.byteLength !== 12 || cipherBytes.byteLength < 17 || cipherBytes.byteLength > 12_000) return null;
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes.buffer as ArrayBuffer }, await keyFor(secret), cipherBytes.buffer as ArrayBuffer);
-    const session = JSON.parse(decoder.decode(clear)) as BffSession;
-    if (!session.accessToken || !session.refreshToken || !session.csrf || session.absoluteExpiresAt <= now) return null;
+    const parsed = JSON.parse(decoder.decode(clear)) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const session = parsed as BffSession;
+    if (typeof session.accessToken !== "string" || session.accessToken.length > 8_192
+      || typeof session.refreshToken !== "string" || session.refreshToken.length > 8_192
+      || typeof session.csrf !== "string" || session.csrf.length < 16 || session.csrf.length > 256
+      || !Number.isFinite(session.expiresAt) || !Number.isFinite(session.absoluteExpiresAt)
+      || session.absoluteExpiresAt <= now || session.expiresAt > session.absoluteExpiresAt) return null;
+    if (session.mfaPending !== undefined && typeof session.mfaPending !== "boolean") return null;
+    if (session.mfaDestination !== undefined
+      && (typeof session.mfaDestination !== "string" || session.mfaDestination.length > 256
+        || !/^\/(?![\\/])/.test(session.mfaDestination)
+        || /[\u0000-\u001f\u007f]/.test(session.mfaDestination))) return null;
+    if (session.mfaEnrollmentRequired !== undefined && typeof session.mfaEnrollmentRequired !== "boolean") return null;
     return session;
   } catch {
     return null;

@@ -1,12 +1,18 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(34);
+select plan(64);
 select set_config('request.jwt.claim.role','service_role',true);
 
 select ok(to_regclass('app_private.partner_leads') is not null,
   'partner lead table exists');
 select ok(to_regclass('app_private.agent_message_authorizations') is not null,
   'exact-message authorization table exists');
+select ok(exists(
+  select 1 from pg_trigger
+  where tgrelid='app_private.agent_message_authorizations'::regclass
+    and tgname='agent_message_context_identity_guard'
+    and not tgisinternal
+), 'automatic support authorizations enforce independent context identity');
 select ok(exists(select 1 from information_schema.columns
   where table_schema='app_private' and table_name='communication_threads' and column_name='donation_id'),
   'communication threads can link to donations');
@@ -51,9 +57,40 @@ select is((select result->>'rationaleCode' from generic_decision),
 
 select is(api.agent_support_capabilities('workspace-agent-pgtap')->>'databaseAccess',
   'bounded_rpc_only','agent capability contract prohibits arbitrary SQL');
+select is((api.agent_support_capabilities('workspace-agent-pgtap')->'identityFreeAutomaticEmailRequiresTrustedInbound')->>0,
+  'general_faq','capabilities disclose the trusted-context requirement for identity-free replies');
+
+select throws_ok($$select api.agent_authorize_support_message(
+  'workspace-agent-pgtap','general_faq','unthreaded-faq-pgtap@example.org',
+  'How Donate by Mail works','An unthreaded message must not auto-send.',
+  'Unthreaded FAQ','faq-unthreaded-message-001')$$,
+  '42501','verified communication context required',
+  'an automatic FAQ requires verified communication context');
+
+create temporary table faq_inbound_context as
+select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-faq-thread','pgtap-faq-inbound-message',
+  'faq-pgtap@example.org',jsonb_build_array('tre@donatebymail.org'),
+  'FAQ question','A donor asked how the process works.',null,now(),null,null,null
+) result;
+select is((select inbound_verified from app_private.communication_threads
+  where id=(select (result->>'threadId')::uuid from faq_inbound_context)),false,
+  'agent-journaled inbound context is not trusted for automatic sending');
+select throws_ok($$select api.agent_authorize_support_message(
+  'workspace-agent-pgtap','general_faq','faq-pgtap@example.org',
+  'How Donate by Mail works','An untrusted thread must not auto-send.',
+  'Untrusted FAQ','faq-untrusted-message-001')$$,
+  '42501','verified communication context required',
+  'an agent-created inbound thread cannot authorize an identity-free reply');
+update app_private.communication_threads
+set inbound_verified=true
+where id=(select (result->>'threadId')::uuid from faq_inbound_context);
+select is((select inbound_verified from app_private.communication_threads
+  where id=(select (result->>'threadId')::uuid from faq_inbound_context)),true,
+  'a provider-trusted attestation can enable the communication context');
 
 create temporary table faq_authorization as
-select api.agent_authorize_support_message(
+select api.agent_authorize_support_message_payload(
   'workspace-agent-pgtap','general_faq','faq-pgtap@example.org',
   'How Donate by Mail works',
   'Donate by Mail accepts eligible phones by mail. This is a test message.',
@@ -63,35 +100,111 @@ select is((select result->>'outcome' from faq_authorization),'ALLOW_AUTOMATICALL
   'a bounded general FAQ can be authorized automatically');
 select ok((select (result->>'autoSendAllowed')::boolean from faq_authorization),
   'a bounded general FAQ is marked eligible for automatic send');
+select is((select result->>'recipientEmail' from faq_authorization),'faq-pgtap@example.org',
+  'authorization returns the exact normalized recipient for the connector');
+select is((select result->>'subject' from faq_authorization),'How Donate by Mail works',
+  'authorization returns the exact subject for the connector');
+select is((select result->>'body' from faq_authorization),
+  'Donate by Mail accepts eligible phones by mail. This is a test message.',
+  'authorization returns the exact body for the connector');
 select throws_ok(format(
-  $$select api.agent_record_outbound_message(
+  $$select api.agent_record_outbound_message_checked(
     'workspace-agent-pgtap',%L::uuid,'How Donate by Mail works','Altered body.',%L,
-    'gmail','pgtap-faq-thread','pgtap-faq-message','tre@donatebymail.org',now())$$,
+    'gmail','pgtap-faq-thread','pgtap-faq-message','tre@donatebymail.org',now(),'faq-pgtap@example.org')$$,
   (select result->>'authorizationId' from faq_authorization),
   (select result->>'contentHash' from faq_authorization)),
   '22023','valid unconsumed exact-message authorization required',
   'outbound logging rejects a body changed after authorization');
+select throws_ok(format(
+  $$select api.agent_record_outbound_message_checked(
+    'workspace-agent-pgtap',%L::uuid,'How Donate by Mail works',%L,%L,
+    'gmail','pgtap-faq-thread','pgtap-faq-message-2','tre@donatebymail.org',now(),'attacker-pgtap@example.org')$$,
+  (select result->>'authorizationId' from faq_authorization),
+  (select result->>'body' from faq_authorization),
+  (select result->>'contentHash' from faq_authorization)),
+  '22023','provider recipient does not match authorization',
+  'outbound logging rejects a provider recipient changed after authorization');
 
 create temporary table outbound_result as
-select api.agent_record_outbound_message(
+select api.agent_record_outbound_message_checked(
   'workspace-agent-pgtap',
   (select (result->>'authorizationId')::uuid from faq_authorization),
   'How Donate by Mail works',
   'Donate by Mail accepts eligible phones by mail. This is a test message.',
   (select result->>'contentHash' from faq_authorization),
-  'gmail','pgtap-faq-thread','pgtap-faq-message','tre@donatebymail.org',now()
+  'gmail','pgtap-faq-thread','pgtap-faq-message','TRE@DONATEBYMAIL.ORG',now(),'faq-pgtap@example.org'
 ) result;
 select ok((select (result->>'authorizationConsumed')::boolean from outbound_result),
   'an exact authorized outbound message is journaled and consumes authorization');
-select ok((api.agent_record_outbound_message(
+select is((select sender_identity_ref from app_private.communication_messages
+  where id=(select (result->>'messageId')::uuid from outbound_result)),
+  'tre@donatebymail.org',
+  'outbound sender identity is normalized to the canonical Donate by Mail address');
+select ok((api.agent_record_outbound_message_checked(
   'workspace-agent-pgtap',
   (select (result->>'authorizationId')::uuid from faq_authorization),
   'How Donate by Mail works',
   'Donate by Mail accepts eligible phones by mail. This is a test message.',
   (select result->>'contentHash' from faq_authorization),
-  'gmail','pgtap-faq-thread','pgtap-faq-message','tre@donatebymail.org',now()
+  'gmail','pgtap-faq-thread','pgtap-faq-message','tre@donatebymail.org',now(),'faq-pgtap@example.org'
 )->>'replayed')::boolean,
   'replaying the same recorded send is idempotent');
+select is((api.agent_authorize_support_message_payload(
+  'workspace-agent-pgtap','general_faq','faq-pgtap@example.org',
+  'How Donate by Mail works','Donate by Mail accepts eligible phones by mail. This is a test message.',
+  'General process answer','faq-support-message-001'
+)->>'autoSendAllowed')::boolean,false,
+  'a consumed authorization replay cannot be offered to the connector for another send');
+
+create temporary table invalid_sender_authorization as
+select api.agent_authorize_support_message_payload(
+  'workspace-agent-pgtap','general_faq','faq-pgtap@example.org',
+  'How Donate by Mail works','Donate By Mail accepts eligible phones by mail. This is a second test message.',
+  'Sender identity boundary test','faq-support-message-invalid-sender-001'
+) result;
+select is((select result->>'outcome' from invalid_sender_authorization),'ALLOW_AUTOMATICALLY',
+  'a second bounded FAQ remains eligible before send-time sender validation');
+select throws_ok(format(
+  $$select api.agent_record_outbound_message_checked(
+    'workspace-agent-pgtap',%L::uuid,'How Donate by Mail works',%L,%L,
+    'gmail','pgtap-faq-invalid-sender-thread','pgtap-faq-invalid-sender-message','attacker@example.org',now(),%L)$$,
+  (select result->>'authorizationId' from invalid_sender_authorization),
+  (select result->>'body' from invalid_sender_authorization),
+  (select result->>'contentHash' from invalid_sender_authorization),
+  'faq-pgtap@example.org'),
+  '22023','approved sender identity required',
+  'outbound journal rejects a sender outside the Donate by Mail domain');
+
+create temporary table revoked_faq_context as
+select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-faq-revoked-thread','pgtap-faq-revoked-inbound',
+  'revoked-faq-pgtap@example.org',jsonb_build_array('tre@donatebymail.org'),
+  'FAQ question','A second donor asked how the process works.',null,now(),null,null,null
+) result;
+update app_private.communication_threads
+set inbound_verified=true
+where id=(select (result->>'threadId')::uuid from revoked_faq_context);
+create temporary table revoked_faq_authorization as
+select api.agent_authorize_support_message_payload(
+  'workspace-agent-pgtap','general_faq','revoked-faq-pgtap@example.org',
+  'How Donate By Mail works','This exact answer was authorized before revocation.',
+  'Revocation race test','faq-revocation-message-001'
+) result;
+select is((select result->>'outcome' from revoked_faq_authorization),'ALLOW_AUTOMATICALLY',
+  'a provider-attested FAQ can be authorized before its attestation is revoked');
+update app_private.communication_threads
+set inbound_verified=false
+where id=(select (result->>'threadId')::uuid from revoked_faq_context);
+select throws_ok(format(
+  $$select api.agent_record_outbound_message_checked(
+    'workspace-agent-pgtap',%L::uuid,'How Donate By Mail works',%L,%L,
+    'gmail','pgtap-faq-revoked-thread','pgtap-faq-revoked-message','tre@donatebymail.org',now(),%L)$$,
+  (select result->>'authorizationId' from revoked_faq_authorization),
+  (select result->>'body' from revoked_faq_authorization),
+  (select result->>'contentHash' from revoked_faq_authorization),
+  'revoked-faq-pgtap@example.org'),
+  '42501','verified communication context required',
+  'send-time journaling rejects an authorization after trusted inbound context is revoked');
 
 create temporary table donation_fixture as select api.create_donation(
   '{"clientSubmissionKey":"a5100000-0000-4000-8000-000000000004","shippingMethod":"label","donor":{"firstName":"Agent","middleName":"","lastName":"Fixture","email":"agent-donor-pgtap@example.org","address1":"1 Test Way","address2":"","city":"Kissimmee","state":"FL","zip":"34741","country":"US","marketingEmailConsent":false},"charity":{"pledgeId":"a5100000-0000-4000-8000-000000000001","name":"Agent Fixture Charity"},"devices":[{"id":"agent-phone","brand":"Apple","model":"iPhone 13","age":"2-3 years","condition":"Good","storage":"128 GB","powersOn":true,"unlocked":true}]}'::jsonb,
@@ -119,6 +232,27 @@ select is((api.agent_get_donation_support_snapshot(
 )->>'identityVerified')::boolean,false,
   'mismatched sender is denied the private donation snapshot');
 
+insert into app_private.donation_devices(donation_id, donor_device_key)
+select (select (result->>'donationId')::uuid from donation_fixture),
+  'agent-bounded-device-' || n
+from generate_series(1,25) as values(n);
+insert into app_private.donation_status_events(
+  donation_id, status, donor_visible, public_message, actor, occurred_at
+)
+select (select (result->>'donationId')::uuid from donation_fixture),
+  'submitted', true, 'Bounded timeline fixture ' || n, 'system', now() + (n || ' seconds')::interval
+from generate_series(1,105) as values(n);
+select is(jsonb_array_length((api.agent_get_donation_support_snapshot(
+  'workspace-agent-pgtap',(select (result->>'donationId')::uuid from donation_fixture),
+  'agent-donor-pgtap@example.org'
+)->'devices')),20,
+  'donation support snapshots cap device details');
+select is(jsonb_array_length((api.agent_get_donation_support_snapshot(
+  'workspace-agent-pgtap',(select (result->>'donationId')::uuid from donation_fixture),
+  'agent-donor-pgtap@example.org'
+)->'timeline')),100,
+  'donation support snapshots cap donor-visible timeline history');
+
 create temporary table donation_authorization as
 select api.agent_authorize_support_message(
   'workspace-agent-pgtap','donation_status','agent-donor-pgtap@example.org',
@@ -128,6 +262,16 @@ select api.agent_authorize_support_message(
 ) result;
 select is((select result->>'outcome' from donation_authorization),'ALLOW_AUTOMATICALLY',
   'verified donation status update can be authorized automatically');
+update app_private.agent_message_authorizations
+set created_at=now()-interval '3 hours', expires_at=now()-interval '1 hour'
+where id=(select (result->>'authorizationId')::uuid from donation_authorization);
+select is((api.agent_authorize_support_message_payload(
+  'workspace-agent-pgtap','donation_status','agent-donor-pgtap@example.org',
+  'Your donation status','A verified donation update.','Verified donation status answer',
+  'verified-donation-message-001',null,
+  (select (result->>'donationId')::uuid from donation_fixture)
+)->>'autoSendAllowed')::boolean,false,
+  'an expired authorization replay cannot be offered to the connector for sending');
 
 create temporary table denied_donation_authorization as
 select api.agent_authorize_support_message(
@@ -138,6 +282,36 @@ select api.agent_authorize_support_message(
 ) result;
 select is((select result->>'outcome' from denied_donation_authorization),'ESCALATE',
   'identity mismatch escalates instead of sending private donation facts');
+
+create temporary table denied_optional_context_authorization as
+select api.agent_authorize_support_message(
+  'workspace-agent-pgtap','general_faq','different-person-pgtap@example.org',
+  'A general question','A generic answer with an unverified context.','Optional context mismatch test',
+  'denied-optional-context-message-001',null,
+  (select (result->>'donationId')::uuid from donation_fixture)
+) result;
+select is((select result->>'outcome' from denied_optional_context_authorization),'ESCALATE',
+  'an unverified optional donation context cannot make a generic message automatic');
+select is((select result->>'rationaleCode' from denied_optional_context_authorization),'support_context_not_verified',
+  'optional context mismatch records a specific identity rationale');
+
+create temporary table unrelated_organization as
+select gen_random_uuid() as id;
+insert into app_private.organizations(id,name,slug,status)
+select id,'Unrelated Agent Fixture','unrelated-agent-fixture','prospect'::app_private.organization_status
+from unrelated_organization;
+create temporary table mixed_context_authorization as
+select api.agent_authorize_support_message(
+  'workspace-agent-pgtap','general_faq','agent-donor-pgtap@example.org',
+  'A general question','A generic answer with mixed context.','Mixed context test',
+  'mixed-context-message-001',null,
+  (select (result->>'donationId')::uuid from donation_fixture),
+  (select id from unrelated_organization),null
+) result;
+select is((select result->>'outcome' from mixed_context_authorization),'ESCALATE',
+  'every supplied donation and organization context must independently match the recipient');
+select is((select result->>'rationaleCode' from mixed_context_authorization),'support_context_not_verified',
+  'mixed identity context records a context-specific rationale');
 
 create temporary table sensitive_authorization as
 select api.agent_authorize_support_message(
@@ -167,6 +341,27 @@ select ok((api.agent_record_inbound_message(
 select is(api.agent_set_communication_thread_status(
   'workspace-agent-pgtap',(select (result->>'threadId')::uuid from inbound_result),'resolved'
 )->>'status','resolved','agent can maintain bounded communication workflow state');
+select ok((api.agent_set_communication_thread_status(
+  'workspace-agent-pgtap',(select (result->>'threadId')::uuid from inbound_result),'resolved'
+)->>'replayed')::boolean,
+  'repeating a current thread status is a replay without a duplicate transition');
+select throws_ok($$select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-inbound-thread','pgtap-inbound-message',
+  'different-sender-pgtap@example.org',jsonb_build_array('tre@donatebymail.org'),
+  'Donation question','Altered replay body','gmail:pgtap-inbound-message',now(),null,null,null
+)$$, '23505', 'inbound replay payload mismatch',
+  'reusing a provider message reference with altered data fails closed');
+select is((select status from app_private.communication_threads where id=(select (result->>'threadId')::uuid from inbound_result)),
+  'resolved','replaying an inbound message does not reopen a resolved thread');
+update app_private.communication_threads
+set inbound_verified=true
+where id=(select (result->>'threadId')::uuid from inbound_result);
+select throws_ok($$select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-inbound-thread','pgtap-inbound-new-message',
+  'attacker-pgtap@example.org',jsonb_build_array('tre@donatebymail.org'),
+  'Injected sender','A sender change must not retarget a verified thread.',null,now(),null,null,null
+)$$, '42501', 'verified inbound sender mismatch',
+  'an untrusted sender cannot replace the identity on a provider-attested thread');
 
 create temporary table lead_result as
 select api.agent_create_partner_lead(
@@ -184,6 +379,8 @@ select ok((api.agent_create_partner_lead(
   'partner lead creation is idempotent');
 select ok(api.agent_get_operations_overview('workspace-agent-pgtap') ? 'humanActionQueue',
   'operations overview exposes a human escalation queue');
+select ok(jsonb_array_length(api.agent_get_operations_overview('workspace-agent-pgtap')->'humanActionQueue'->'agentEscalations') <= 100,
+  'operations overview caps each human queue array');
 
 create temporary table prohibited_decision as
 select api.evaluate_agent_command(
@@ -210,6 +407,23 @@ select api.agent_authorize_support_message(
 ) result;
 select is((select result->>'outcome' from wrong_escalation_recipient),'ESCALATE',
   'internal escalation category cannot auto-send to an unapproved recipient');
+
+select throws_ok($$select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-invalid-recipient-thread','pgtap-invalid-recipient-message',
+  'agent-donor-pgtap@example.org',jsonb_build_array('not-an-email'),
+  'Invalid recipient test','The recipient list should be rejected.',null,now(),null,null,null
+)$$,
+  '22023','bounded recipient email references required',
+  'inbound journal rejects malformed recipient identities');
+
+select throws_ok($$select api.agent_record_inbound_message(
+  'workspace-agent-pgtap','gmail','pgtap-too-many-recipient-thread','pgtap-too-many-recipient-message',
+  'agent-donor-pgtap@example.org',
+  (select jsonb_agg(to_jsonb('agent-' || n || '@example.org')) from generate_series(1,26) as values(n)),
+  'Too many recipients','The recipient list should be bounded.',null,now(),null,null,null
+)$$,
+  '22023','bounded recipient email references required',
+  'inbound journal rejects an oversized recipient list');
 
 select * from finish();
 rollback;

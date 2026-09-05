@@ -97,8 +97,14 @@
   };
   document.addEventListener("pointerdown", closeOpenMenus);
   document.addEventListener("keydown", closeMenusOnEscape);
-  fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
-    .then((response) => response.json())
+  const sessionRequestOptions = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? { signal: AbortSignal.timeout(10_000) } : {};
+  fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store", ...sessionRequestOptions })
+    .then((response) => {
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") return null;
+      return response.text().then((raw) => raw.length <= 64 * 1024 ? JSON.parse(raw) : null);
+    })
     .then((body) => {
       if (accountResolved || !body?.authenticated) return;
       accountResolved = true;

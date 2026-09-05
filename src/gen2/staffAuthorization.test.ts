@@ -25,7 +25,7 @@ describe("staff/admin authorization boundary", () => {
 
   it("derives role from the protected database context and returns a clear 403", () => {
     expect(worker).toContain('"staff_session_context"');
-    expect(worker).toContain('context.role === "staff" || context.role === "admin"');
+    expect(worker).toContain('context.role !== "staff" && context.role !== "admin"');
     expect(worker).toContain('"Administrator access is required for this action."');
     expect(worker).toContain("authorizeStaffPath(staff.role, url.pathname)");
     expect(staffPage).toContain('publicApi<{ ok?: boolean; user?: { role?: string } }>("/api/staff/session")');
