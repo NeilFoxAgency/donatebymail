@@ -160,30 +160,36 @@ HTML would otherwise be served directly by Cloudflare and could bypass the
 Worker's HTTPS redirect, CSP/HSTS headers, cache policy, and release marker;
 the production preflight and configuration test reject any HTML exclusion.
 
-### Current hosted release status (August 8, 2026)
+### Current hosted release status (September 5, 2026)
 
 The connected account is not production-ready yet. The production hostname is
 still serving a cached static HTML shell at `/healthz`, `/readyz`, and
-`/ads.txt`, and the production Worker lacks the current application bindings
-and secrets. The read-only remote secret check currently finds only the legacy
-provider keys and reports the required Supabase, session, tracking, and
-Turnstile secret names as missing. The production edge also still needs Always
-Use HTTPS, minimum TLS 1.2 or newer, HSTS, the edge `nosniff` setting, and
-managed WAF enabled. Live DNS is still Google-only SPF, so the merged Brevo and
-`mx` SPF mechanisms and an explicit DMARC/MX check remain open. Exact production
-Supabase Auth URLs and a separate production Supabase project have not been
-verified. These are external operator gates; this branch has not deployed
-production or changed the production database.
+`/ads.txt`. The guarded release passes its full local verification and strict
+Wrangler dry run from clean `main`, but the production Worker is not deployed.
+Pledge, Turnstile, session, tracking, and Brevo secrets are staged in unapplied
+Worker versions. A separate production Supabase project is active in
+`us-east-2`; all 75 migrations are applied, both contract probes exist, remote
+schema lint and advisors are clean, database SSL enforcement is enabled, and
+Auth has the exact production URL allowlist and hardened password settings.
+Supabase's publishable and secret API keys and a dedicated Brevo SMTP credential
+remain unavailable to the release environment. No beta value or placeholder was
+substituted.
 
-Beta has a newer Worker deployment, but the hosted connector contract is not
-current: the unauthenticated operations surface cannot be verified with the
-current application and agent contract fields, and both dedicated connector
-hosts currently answer plaintext HTTP `/mcp` requests with `401` instead of
-redirecting to HTTPS. The Cloudflare MCP portal metadata also advertises a
-stale mixed operations/editorial tool list. Do not connect the Workspace Agent
-or move out of beta until Access-protected `npm run smoke:beta` and
-`npm run smoke:agent` pass against the current deployment, and the exact
-connector surfaces are refreshed.
+Live DNS now passes the merged SPF, DMARC, and MX checks. Always
+Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, Browser Integrity
+Check, Bot Fight Mode, and the available Free Managed Ruleset are enabled, but
+the trusted GitHub release job still needs a scoped `CLOUDFLARE_API_TOKEN` to
+prove the full edge configuration. Paid Cloudflare WAF/OWASP rules cannot be
+enabled on the current plan and are not represented as active controls.
+
+Beta's protected smoke currently receives HTTP 403 from Cloudflare Access, so
+the service token or its `Service Auth` policy must be replaced. The dedicated
+connector hosts reject missing bearer credentials over HTTPS as expected, but
+their plaintext POST `/mcp` requests receive a method-changing 301 rather than
+307/308. Do not connect the Workspace Agent or move out of beta until Access is
+repaired, the transport redirect is method-preserving, the current Worker is
+deployed with a sandbox Pledge key, and both `npm run smoke:beta` and
+`npm run smoke:agent` pass with the exact current contract markers.
 
 ### Beta environment
 

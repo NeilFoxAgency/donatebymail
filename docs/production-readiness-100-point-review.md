@@ -6,6 +6,8 @@ covered by the repository verification suite. “Hosted” means it still needs
 authorized deployment, credentials, or provider-side configuration; it is not
 represented as complete.
 
+Hosted status was last reverified on September 5, 2026.
+
 ## Transport and HTTP safety
 
 1. **Local —** Redirect hosted production HTTP requests to HTTPS with `308`.
@@ -129,17 +131,20 @@ represented as complete.
 92. **Local —** Require strict Wrangler dry-runs for beta and production.
 93. **Local —** Refuse production deploys without the exact confirmation, branch, origin, clean tree, and verification gates.
 94. **Local —** Validate production public keys and required secrets before deploy.
-95. **Hosted — BLOCKED (credential input required).** The production Turnstile widget and `TURNSTILE_SECRET_KEY` are provisioned, and fresh BFF/tracking secrets exist as unapplied Worker versions. The approved production Pledge public key plus the three production Supabase values (URL, publishable key, and secret key) are not available in this workspace. No values were invented or copied from beta.
+95. **Hosted — PARTIAL (two credentials remain).** The approved production Pledge and Turnstile public keys are known, their server keys are staged with the BFF, tracking, and Brevo secrets, and a dedicated production Supabase project is active in `us-east-2` with database SSL enforcement enabled. All 75 migrations through `20260814120000` are applied; both contract probes exist; remote schema lint and security/performance advisors report no issues. The production Supabase publishable and secret API keys still require an unlocked provider session because Supabase CLI 2.112.0 rejects the new key response before returning it. Custom production SMTP also requires a real Brevo SMTP credential; no value was invented or copied from beta.
 96. **Hosted — COMPLETE.** The single root SPF record now contains Google, Brevo, and `mx`; `npm run check:production-dns` passes after propagation.
-97. **Hosted — PARTIAL.** Always Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, nosniff, Browser Integrity Check, Bot Fight Mode, Cloudflare's active Free Managed Ruleset, and a Free-plan IP rate limit for anonymous donation submissions are enabled. The paid Cloudflare Managed WAF/OWASP rulesets remain unavailable without an explicit plan upgrade.
-98. **Hosted — BLOCKED (release guard and configuration).** The guarded production deploy still correctly refuses the dirty feature checkout and refuses until item 95 is complete; live `/healthz` therefore still serves the stale static shell rather than the current Worker contract.
-99. **Hosted — PARTIAL.** A new one-year beta service token was created and added to the existing `Service Auth` policy. Authenticated beta requests now reach the Worker, but beta smoke still fails the current-Worker marker until the current Worker is deployed.
-100. **Hosted — BLOCKED (deployment).** The existing MCP connector host remains reachable and HTTPS-safe, but its live responses lack the current application/agent contract markers. Deploying the current Worker is gated by items 95 and 98; no connector tool smoke is claimed green without those markers and bearer credentials.
+97. **Hosted — PARTIAL.** Always Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, nosniff, Browser Integrity Check, Bot Fight Mode, Cloudflare's active Free Managed Ruleset, and a Free-plan IP rate limit for anonymous donation submissions are enabled. The paid Cloudflare Managed WAF/OWASP rulesets remain unavailable without an explicit plan upgrade. The repository's full edge preflight is still blocked because the trusted release job does not have a scoped `CLOUDFLARE_API_TOKEN`.
+98. **Hosted — BLOCKED (release guard and configuration).** The guarded production deploy passes its complete local suite and strict Wrangler dry run from clean `main`, but correctly refuses to deploy without the two production Supabase API keys. Live `/healthz`, `/readyz`, `/ads.txt`, and unknown paths therefore still serve the stale cached HTML shell rather than the current Worker contract.
+99. **Hosted — BLOCKED (Access service token).** The beta remains protected by Cloudflare Access, but the repository's current `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` receive HTTP 403. The service token or its `Service Auth` policy must be replaced before the Access-protected smoke and sandbox public Pledge-key recovery can run.
+100. **Hosted — BLOCKED (redirect and deployment).** The dedicated MCP connector hosts correctly reject missing bearer credentials over HTTPS, but plaintext POST `/mcp` currently receives Cloudflare's method-changing 301. A zone Single Redirect must return 307/308 before Always Use HTTPS, then the current beta Worker must be deployed and both authenticated connector contracts reverified. No connector tool smoke is claimed green without those transport and version markers.
 
 The browser audit confirmed that the current hosted site is still serving an
 older shell on nested article routes and an older mobile navigation contract;
-the local build and regression suite now protect both fixes. Hosted changes in
-this authorization window are recorded above with their live evidence and
-remaining gates. Production readiness is not claimed while the guarded Worker
-deployment, production data-plane credentials, and Free-plan WAF limitation
-remain unresolved.
+the local build and regression suite now protect both fixes. The September 5
+trusted-main CI run also executes all five hosted gates independently. After
+the exact Auth values were added to the trusted release environment and the run
+was repeated, production Auth and DNS are green; beta Access, the missing
+Cloudflare edge token, and connector transport remain explicit failures rather
+than being hidden behind the first failure. Production readiness is not claimed
+while the guarded Worker deployment, production data-plane credentials, custom
+SMTP, Access service token, and connector redirect remain unresolved.
