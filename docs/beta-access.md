@@ -8,16 +8,17 @@ production Worker route.
 
 The historical checks below are evidence from the July 29–30 beta deployment,
 not a current release approval. The hosted beta must be rechecked after every
-Worker or Supabase change. As of August 8, 2026, the connected Cloudflare
-account shows a newer beta deployment, but the unauthenticated operations
-connector still returns a generic readiness body without the current
-`applicationContractVersion` and `agentContractVersion`. Treat that as a
-failed readiness gate until an Access-protected `npm run smoke:beta` and the
-separate `npm run smoke:agent` both pass against the current deployment. The
-dedicated connector hosts must also redirect plaintext POST `/mcp` requests
-with a method-preserving 307/308 response to their canonical HTTPS routes; an
-authentication error over plaintext or a method-changing 301/302 redirect is a
-transport failure, not a successful boundary check.
+Worker or Supabase change. As of September 5, 2026, Access still challenges
+anonymous beta requests, but the configured CI service-token pair receives
+HTTP 403 and cannot run the protected smoke. The deployed Worker also predates
+the current `applicationContractVersion` and `agentContractVersion` contract.
+Treat both as failed readiness gates until the service token or its policy is
+replaced, `npm run smoke:beta` passes, and the separate `npm run smoke:agent`
+passes against the current deployment. The dedicated connector hosts currently
+redirect plaintext POST `/mcp` with a method-changing 301; they must instead
+return 307/308 to their canonical HTTPS routes. An authentication response over
+plaintext or a method-changing 301/302 redirect is a transport failure, not a
+successful boundary check.
 
 ## Active configuration
 
@@ -37,7 +38,8 @@ The account owner activated Zero Trust Free. The active boundary is:
   its encrypted session cookie. Without this exception, Cloudflare Access can
   consume a public magic-link redirect before the Worker callback receives it.
 - Repository secrets: `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`
-- Token expiration: July 29, 2027
+- Historical token expiration: July 29, 2027. The current pair receives HTTP
+  403, so expiration alone is not proof that the token or policy is usable.
 
 ## Verified behavior
 
