@@ -160,20 +160,16 @@ HTML would otherwise be served directly by Cloudflare and could bypass the
 Worker's HTTPS redirect, CSP/HSTS headers, cache policy, and release marker;
 the production preflight and configuration test reject any HTML exclusion.
 
-### Current hosted release status (September 5, 2026)
+### Current hosted release status (September 6, 2026)
 
-The connected account is not production-ready yet. The production hostname is
-still serving a cached static HTML shell at `/healthz`, `/readyz`, and
-`/ads.txt`. The guarded release passes its full local verification and strict
-Wrangler dry run from clean `main`, but the production Worker is not deployed.
-Pledge, Turnstile, session, tracking, and Brevo secrets are staged in unapplied
-Worker versions. A separate production Supabase project is active in
-`us-east-2`; all 75 migrations are applied, both contract probes exist, remote
-schema lint and advisors are clean, database SSL enforcement is enabled, and
-Auth has the exact production URL allowlist and hardened password settings.
-Supabase's publishable and secret API keys and a dedicated Brevo SMTP credential
-remain unavailable to the release environment. No beta value or placeholder was
-substituted.
+The current production Worker is deployed at 100% traffic. `/healthz` and
+`/readyz` return JSON with the current application contract marker and the
+production smoke passes. All required production Worker secrets are deployed.
+A separate production Supabase project is active in `us-east-2`; all 75
+migrations are applied, both contract probes exist, remote schema lint and
+advisors are clean, database SSL enforcement is enabled, and Auth has the exact
+production URL allowlist and hardened password settings. A dedicated Brevo SMTP
+credential remains unavailable; no beta value or placeholder was substituted.
 
 Live DNS now passes the merged SPF, DMARC, and MX checks. Always
 Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, Browser Integrity
@@ -183,13 +179,13 @@ prove the full edge configuration. Paid Cloudflare WAF/OWASP rules cannot be
 enabled on the current plan and are not represented as active controls.
 
 Beta's protected smoke currently receives HTTP 403 from Cloudflare Access, so
-the service token or its `Service Auth` policy must be replaced. The dedicated
-connector hosts reject missing bearer credentials over HTTPS as expected, but
-their plaintext POST `/mcp` requests receive a method-changing 301 rather than
-307/308. Do not connect the Workspace Agent or move out of beta until Access is
-repaired, the transport redirect is method-preserving, the current Worker is
-deployed with a sandbox Pledge key, and both `npm run smoke:beta` and
-`npm run smoke:agent` pass with the exact current contract markers.
+the service token or its `Service Auth` policy must be replaced. Four active
+Cloudflare Single Redirects now return 308 for all beta connector hosts, but
+the beta Worker still serves the older bundle and the authenticated agent smoke
+receives invalid JSON. Do not connect the Workspace Agent or move out of beta
+until Access is repaired, an approved sandbox Pledge key is available, the
+current Worker is deployed, and both `npm run smoke:beta` and `npm run smoke:agent`
+pass with the exact current contract markers.
 
 ### Beta environment
 

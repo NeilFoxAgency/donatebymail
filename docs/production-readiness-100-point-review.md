@@ -6,7 +6,7 @@ covered by the repository verification suite. “Hosted” means it still needs
 authorized deployment, credentials, or provider-side configuration; it is not
 represented as complete.
 
-Hosted status was last reverified on September 5, 2026.
+Hosted status was last reverified on September 6, 2026.
 
 ## Transport and HTTP safety
 
@@ -131,20 +131,18 @@ Hosted status was last reverified on September 5, 2026.
 92. **Local —** Require strict Wrangler dry-runs for beta and production.
 93. **Local —** Refuse production deploys without the exact confirmation, branch, origin, clean tree, and verification gates.
 94. **Local —** Validate production public keys and required secrets before deploy.
-95. **Hosted — PARTIAL (two credentials remain).** The approved production Pledge and Turnstile public keys are known, their server keys are staged with the BFF, tracking, and Brevo secrets, and a dedicated production Supabase project is active in `us-east-2` with database SSL enforcement enabled. All 75 migrations through `20260814120000` are applied; both contract probes exist; remote schema lint and security/performance advisors report no issues. The production Supabase publishable and secret API keys still require an unlocked provider session because Supabase CLI 2.112.0 rejects the new key response before returning it. Custom production SMTP also requires a real Brevo SMTP credential; no value was invented or copied from beta.
+95. **Hosted — PARTIAL (SMTP only).** The approved production Pledge and Turnstile public keys are known, all eight required production Worker secrets are deployed, and a dedicated production Supabase project is active in `us-east-2` with database SSL enforcement enabled. All 75 migrations through `20260814120000` are applied; both contract probes exist; remote schema lint and security/performance advisors report no issues. Custom production SMTP still requires a real Brevo SMTP credential; no value was invented or copied from beta.
 96. **Hosted — COMPLETE.** The single root SPF record now contains Google, Brevo, and `mx`; `npm run check:production-dns` passes after propagation.
-97. **Hosted — PARTIAL.** Always Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, nosniff, Browser Integrity Check, Bot Fight Mode, Cloudflare's active Free Managed Ruleset, and a Free-plan IP rate limit for anonymous donation submissions are enabled. The paid Cloudflare Managed WAF/OWASP rulesets remain unavailable without an explicit plan upgrade. The repository's full edge preflight is still blocked because the trusted release job does not have a scoped `CLOUDFLARE_API_TOKEN`.
-98. **Hosted — BLOCKED (release guard and configuration).** The guarded production deploy passes its complete local suite and strict Wrangler dry run from clean `main`, but correctly refuses to deploy without the two production Supabase API keys. Live `/healthz`, `/readyz`, `/ads.txt`, and unknown paths therefore still serve the stale cached HTML shell rather than the current Worker contract.
+97. **Hosted — PARTIAL (CI proof only).** Always Use HTTPS, TLS 1.2 minimum, one-year HSTS with subdomains, nosniff, Browser Integrity Check, Bot Fight Mode, Cloudflare's active Free Managed Ruleset, and a Free-plan IP rate limit for anonymous donation submissions are enabled and were reverified in the dashboard. The paid Cloudflare Managed WAF/OWASP rulesets remain unavailable without an explicit plan upgrade. The repository's API-backed edge preflight is still blocked because the trusted release job does not have a scoped `CLOUDFLARE_API_TOKEN`.
+98. **Hosted — COMPLETE.** Current `main` was deployed to production Worker version `74376382-1b61-4177-a0f5-082c53e5501d` at 100% traffic with all required secrets. Live `/healthz` and `/readyz` return JSON with the current application contract marker; production smoke passes and the MCP-disabled boundary is live.
 99. **Hosted — BLOCKED (Access service token).** The beta remains protected by Cloudflare Access, but the repository's current `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` receive HTTP 403. The service token or its `Service Auth` policy must be replaced before the Access-protected smoke and sandbox public Pledge-key recovery can run.
-100. **Hosted — BLOCKED (redirect and deployment).** The dedicated MCP connector hosts correctly reject missing bearer credentials over HTTPS, but plaintext POST `/mcp` currently receives Cloudflare's method-changing 301. A zone Single Redirect must return 307/308 before Always Use HTTPS, then the current beta Worker must be deployed and both authenticated connector contracts reverified. No connector tool smoke is claimed green without those transport and version markers.
+100. **Hosted — PARTIAL (beta bundle).** Four active Cloudflare Single Redirects now return 308 with query preservation for `mcp-operations-connector-beta`, `mcp-connector-beta`, `mcp-beta`, and `mcp-oauth-beta`; live plaintext POST probes pass. The beta Worker still serves the older Aug 8 bundle, so authenticated agent smoke receives invalid JSON until beta is rebuilt with the approved sandbox Pledge public key and deployed. No connector tool smoke is claimed green without that environment-correct beta deployment.
 
-The browser audit confirmed that the current hosted site is still serving an
-older shell on nested article routes and an older mobile navigation contract;
-the local build and regression suite now protect both fixes. The September 5
-trusted-main CI run also executes all five hosted gates independently. After
-the exact Auth values were added to the trusted release environment and the run
-was repeated, production Auth and DNS are green; beta Access, the missing
-Cloudflare edge token, and connector transport remain explicit failures rather
-than being hidden behind the first failure. Production readiness is not claimed
-while the guarded Worker deployment, production data-plane credentials, custom
-SMTP, Access service token, and connector redirect remain unresolved.
+The browser audit confirmed that the current hosted site is now serving the
+current Worker contract and security headers on production. The September 6
+trusted-main CI run executes all hosted gates independently. Production smoke,
+Auth, DNS, and the live connector redirects are green; beta Access, the
+missing Cloudflare edge token for API-backed CI proof, custom SMTP, and the
+environment-correct beta connector deployment remain explicit failures rather
+than being hidden behind the first failure. Production is deployed and healthy,
+but the Workspace Agent must remain beta-scoped until those beta gates pass.
